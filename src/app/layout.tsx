@@ -14,6 +14,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           name="description"
           content="Industrial Dashboard for Manufacturing Monitoring"
         />
+        <link rel="icon" type="image/png" href="/favicon.png" />
         <title>Factory Energy & Robot Monitor</title>
       </head>
       <body>
@@ -22,4 +23,3 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     </html>
   );
 }
-
