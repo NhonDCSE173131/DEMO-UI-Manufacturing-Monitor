@@ -4,12 +4,16 @@ import { create } from 'zustand';
 import type { Machine, MachineEvent, Tool } from '@/types';
 import { mockMachines, generateMockEvents, mockTools } from './mock-data';
 
-interface MachineStore {
+export interface MachineStore {
   machines: Machine[];
   events: MachineEvent[];
   tools: Tool[];
   selectedLanguage: 'en' | 'vi';
+  isSidebarCollapsed: boolean;
+  sidebarWidth: number;
   setLanguage: (lang: 'en' | 'vi') => void;
+  toggleSidebar: () => void;
+  setSidebarWidth: (width: number) => void;
   updateMachineStatus: (machineId: string, updates: Partial<Machine>) => void;
   getMachine: (machineId: string) => Machine | undefined;
   addEvent: (event: MachineEvent) => void;
@@ -118,7 +122,7 @@ const simulateRealTimeUpdates = (set: any, get: any) => {
   }, 2000); // Update every 2 seconds
 };
 
-export const useMachineStore = create<MachineStore>((set, get) => {
+export const useMachineStore = create<MachineStore>()((set, get) => {
   // Start simulation loop (client only)
   simulateRealTimeUpdates(set, get);
 
@@ -127,7 +131,11 @@ export const useMachineStore = create<MachineStore>((set, get) => {
     events: generateMockEvents(),
     tools: mockTools || [],
     selectedLanguage: 'vi',
+    isSidebarCollapsed: false,
+    sidebarWidth: 256,
     setLanguage: (lang) => set({ selectedLanguage: lang }),
+    toggleSidebar: () => set((state) => ({ isSidebarCollapsed: !state.isSidebarCollapsed })),
+    setSidebarWidth: (width) => set({ sidebarWidth: width }),
     updateMachineStatus: (machineId, updates) =>
       set((state) => ({
         machines: state.machines.map((m) =>
@@ -231,4 +239,3 @@ export const useMachineStore = create<MachineStore>((set, get) => {
       })),
   };
 });
-
