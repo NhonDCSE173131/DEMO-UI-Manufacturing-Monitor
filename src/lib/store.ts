@@ -124,7 +124,7 @@ export const useMachineStore = create<MachineStore>((set, get) => {
 
   return {
     machines: mockMachines,
-    events: generateMockEvents(mockMachines),
+    events: generateMockEvents(),
     tools: mockTools || [],
     selectedLanguage: 'vi',
     setLanguage: (lang) => set({ selectedLanguage: lang }),

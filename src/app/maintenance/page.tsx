@@ -2,7 +2,7 @@
 
 import { useMachineStore } from '@/lib/store';
 import { formatNumber } from '@/lib/utils';
-import { Wrench, CheckCircle, AlertTriangle, AlertCircle, Calendar, CalendarCheck, FileText, Check, X } from 'lucide-react';
+import { Wrench, CheckCircle, AlertTriangle, AlertCircle, Calendar, CalendarCheck, FileText, Check, X, ShieldCheck } from 'lucide-react';
 import enMessages from '@/locales/en.json';
 import viMessages from '@/locales/vi.json';
 import { useState } from 'react';
