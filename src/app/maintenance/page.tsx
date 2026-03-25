@@ -77,10 +77,10 @@ const MaintenancePage = () => {
 
                 <div className="flex justify-end mb-3">
                   <button 
-                    onClick={() => resolveMaintenance(machine.id)}
+                    onClick={() => setMaintainingMachineId(machine.id)}
                     className="text-xs px-3 py-1.5 rounded bg-industrial-success/20 text-industrial-success border border-industrial-success/30 hover:bg-industrial-success/40 transition-colors"
                   >
-                    {selectedLanguage === 'en' ? 'Confirm Maintenance Done' : 'Đã bảo trì'}
+                    {selectedLanguage === 'en' ? 'Confirm Maintenance Done' : ' bo tr'}
                   </button>
                 </div>
 
