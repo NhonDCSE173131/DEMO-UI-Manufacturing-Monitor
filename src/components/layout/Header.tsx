@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Globe, AlertCircle, Bell, X } from 'lucide-react';
 import { useMachineStore } from '@/lib/store';
 import { formatDateTime } from '@/lib/utils';
@@ -11,12 +11,24 @@ import Link from 'next/link';
 const Header = () => {
   const { selectedLanguage, setLanguage, machines, events } = useMachineStore();
   const [showNotifications, setShowNotifications] = useState(false);
-  
+  const notificationRef = useRef<HTMLDivElement>(null);
+
   const messages = selectedLanguage === 'en' ? enMessages : viMessages;
 
   const criticalAlerts = events.filter((e) => e.severity === 'critical').length;
   // Recent 5 events
   const recentEvents = [...events].sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).slice(0, 5);
+
+  useEffect(() => {
+    if (!showNotifications) return;
+    function handleClickOutside(event: MouseEvent) {
+      if (notificationRef.current && !notificationRef.current.contains(event.target as Node)) {
+        setShowNotifications(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showNotifications]);
 
   return (
     <header className="sticky top-0 bg-industrial-darker/90 backdrop-blur-md border-b border-industrial-border/20 px-4 md:px-6 py-4 z-30">
@@ -54,9 +66,9 @@ const Header = () => {
             </button>
             
             {showNotifications && (
-              <div className="absolute right-0 mt-2 w-80 bg-industrial-dark border border-industrial-border/30 rounded-lg shadow-xl shadow-black/50 overflow-hidden z-50">
+              <div ref={notificationRef} className="absolute right-0 mt-2 w-80 bg-industrial-dark border border-industrial-border/30 rounded-lg shadow-xl shadow-black/50 overflow-hidden z-50">
                 <div className="flex justify-between items-center p-3 border-b border-industrial-border/20 bg-industrial-card/50">
-                  <h3 className="font-semibold text-industrial-text">{selectedLanguage === 'en' ? 'Notifications' : 'Thông báo'}</h3>
+                  <h3 className="font-semibold text-industrial-text">{messages.energy.notification}</h3>
                   <button onClick={() => setShowNotifications(false)} className="text-industrial-text-secondary hover:text-white">
                     <X size={16} />
                   </button>
@@ -71,13 +83,22 @@ const Header = () => {
                           </span>
                           <span className="text-xs text-industrial-text-secondary">{formatDateTime(event.timestamp)}</span>
                         </div>
-                        <p className="text-sm font-medium text-industrial-text line-clamp-1">{event.title}</p>
-                        <p className="text-xs text-industrial-text-secondary line-clamp-1">{event.message}</p>
+                        <p className="text-sm font-medium text-industrial-text line-clamp-1">
+                          {selectedLanguage === 'vi' && event.title_vi ? event.title_vi : event.title}
+                        </p>
+                        <p className="text-xs text-industrial-text-secondary line-clamp-1">
+                          {selectedLanguage === 'vi' && event.message_vi ? event.message_vi : event.message}
+                        </p>
+                        {event.cause && (
+                          <p className="text-xs text-industrial-text-secondary line-clamp-1 mt-1">
+                            <strong>{messages.machineDetail.cause}:</strong> {selectedLanguage === 'vi' && event.cause_vi ? event.cause_vi : event.cause}
+                          </p>
+                        )}
                       </div>
                     </Link>
                   )) : (
                     <div className="p-4 text-center text-sm text-industrial-text-secondary">
-                      {selectedLanguage === 'en' ? 'No notifications' : 'Không có thông báo'}
+                      {messages.energy.noNotification}
                     </div>
                   )}
                 </div>
@@ -115,4 +136,3 @@ const Header = () => {
 };
 
 export default Header;
-

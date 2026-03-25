@@ -3,7 +3,7 @@
 import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useMachineStore } from '@/lib/store';
-import { formatNumber, formatDateTime } from '@/lib/utils';
+import { formatNumber, formatDateTime, getHealthScore } from '@/lib/utils';
 import { generateMachineTimeSeries } from '@/lib/mock-data';
 import { Settings, Thermometer, Zap, Activity, Clock, Cpu, BarChart3, TrendingUp, Package, AlertTriangle, X } from 'lucide-react';
 import ReactECharts from 'echarts-for-react';
@@ -293,9 +293,10 @@ function MachineDetailContent() {
                       }}
                     ></div>
                     <p className="text-sm font-semibold text-industrial-text">
-                      {selectedMachine.status === 'RUN' && (selectedLanguage === 'en' ? 'Running' : 'Đang Chạy')}
-                      {selectedMachine.status === 'FAULT' && (selectedLanguage === 'en' ? 'Fault' : 'Trục Trặc')}
-                      {selectedMachine.status === 'IDLE' && (selectedLanguage === 'en' ? 'Idle' : 'Đang Chờ')}
+                      {selectedMachine.status === 'RUN' && (messages.machine.running || 'Đang Chạy')}
+                      {selectedMachine.status === 'FAULT' && (messages.machine.fault || 'Trục trặc')}
+                      {selectedMachine.status === 'IDLE' && (messages.machine.idle || 'Đang chờ')}
+                      {selectedMachine.status === 'STOP' && (messages.machine.stopped || 'Dừng')}
                     </p>
                   </div>
                 </div>
@@ -469,7 +470,7 @@ function MachineDetailContent() {
               {/* Enhanced Production Stats */}
               <div className="xl:col-span-4 bg-industrial-darker/50 p-5 rounded-xl border border-industrial-border/10 flex flex-col justify-between">
                 <h4 className="text-sm font-semibold text-industrial-text mb-4 pb-2 border-b border-industrial-border/10 flex items-center justify-between">
-                  {selectedLanguage === 'en' ? 'Production Output' : 'Sản Lượng'}
+                  {selectedLanguage === 'en' ? 'Production Output' : 'Sản lượng'}
                   <TrendingUp size={16} className="text-industrial-border" />
                 </h4>
                 <div className="grid grid-cols-2 gap-4 flex-1">
@@ -543,10 +544,8 @@ function MachineDetailContent() {
               </div>
             </div>
             <p className="text-center text-sm font-medium" style={{color: selectedMachine.machineHealth > 70 ? "#22c55e" : selectedMachine.machineHealth > 40 ? "#facc15" : "#ef4444" }}>
-              {selectedMachine.machineHealth > 80 ? (selectedLanguage === 'en' ? 'Excellent' : 'Rất Tốt') : ''}
-              {selectedMachine.machineHealth <= 80 && selectedMachine.machineHealth > 60 ? (selectedLanguage === 'en' ? 'Good' : 'Tốt') : ''}
-              {selectedMachine.machineHealth <= 60 && selectedMachine.machineHealth > 40 ? (selectedLanguage === 'en' ? 'Warning' : 'Cảnh Báo') : ''}
-              {selectedMachine.machineHealth <= 40 ? (selectedLanguage === 'en' ? 'Critical' : 'Nguy Hiểm') : ''}
+              {/* Sử dụng getHealthScore với messages và selectedLanguage */}
+              {getHealthScore(selectedMachine.machineHealth, selectedLanguage, messages)}
             </p>
           </div>
 

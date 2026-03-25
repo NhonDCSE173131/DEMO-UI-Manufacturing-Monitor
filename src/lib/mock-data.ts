@@ -202,6 +202,17 @@ export const generateMockEvents = (): MachineEvent[] => {
     'Sensor malfunction',
   ];
 
+  const causes_vi = [
+    'Phát hiện mòn dao',
+    'Độ rung cao',
+    'Vượt ngưỡng nhiệt độ',
+    'Trễ chu kỳ',
+    'Can thiệp của vận hành viên',
+    'Dao động nguồn điện',
+    'Bảo trì định kỳ',
+    'Cảm biến lỗi',
+  ];
+
   const events: MachineEvent[] = [
     {
       id: 'E001',
@@ -210,9 +221,12 @@ export const generateMockEvents = (): MachineEvent[] => {
       type: 'warning',
       severity: 'warning',
       title: 'High Servo Load',
+      title_vi: 'Tải Servo Cao',
       message: 'Servo load exceeded 75% threshold',
+      message_vi: 'Tải servo vượt ngưỡng 75%',
       durationMin: 0,
       cause: causes[0],
+      cause_vi: causes_vi[0],
     },
     {
       id: 'E002',
@@ -221,9 +235,12 @@ export const generateMockEvents = (): MachineEvent[] => {
       type: 'warning',
       severity: 'warning',
       title: 'Tool Life Low',
+      title_vi: 'Tuổi Thọ Dao Thấp',
       message: 'Tool T45 approaching end of life (38% remaining)',
+      message_vi: 'Dao T45 sắp hết tuổi thọ (còn 38%)',
       durationMin: 0,
       cause: causes[0],
+      cause_vi: causes_vi[0],
     },
     {
       id: 'E003',
@@ -232,9 +249,12 @@ export const generateMockEvents = (): MachineEvent[] => {
       type: 'downtime',
       severity: 'critical',
       title: 'Unplanned Downtime',
+      title_vi: 'Dừng Máy Đột Xuất',
       message: 'Machine stopped unexpectedly',
+      message_vi: 'Máy dừng đột ngột',
       durationMin: 8,
       cause: causes[5],
+      cause_vi: causes_vi[5],
     },
     {
       id: 'E004',
@@ -243,9 +263,12 @@ export const generateMockEvents = (): MachineEvent[] => {
       type: 'critical',
       severity: 'critical',
       title: 'Machine Fault',
+      title_vi: 'Lỗi Máy',
       message: 'Critical fault detected - Immediate maintenance required',
+      message_vi: 'Phát hiện lỗi nghiêm trọng - Cần bảo trì ngay',
       durationMin: 0,
       cause: causes[7],
+      cause_vi: causes_vi[7],
     },
     {
       id: 'E005',
@@ -254,9 +277,12 @@ export const generateMockEvents = (): MachineEvent[] => {
       type: 'warning',
       severity: 'warning',
       title: 'Abnormal Vibration',
+      title_vi: 'Độ Rung Bất Thường',
       message: 'Vibration level increased by 35%',
+      message_vi: 'Độ rung tăng 35%',
       durationMin: 18,
       cause: causes[1],
+      cause_vi: causes_vi[1],
     },
     {
       id: 'E006',
@@ -265,9 +291,12 @@ export const generateMockEvents = (): MachineEvent[] => {
       type: 'info',
       severity: 'info',
       title: 'Maintenance Completed',
+      title_vi: 'Hoàn Thành Bảo Trì',
       message: 'Scheduled maintenance completed successfully',
+      message_vi: 'Bảo trì định kỳ đã hoàn thành thành công',
       durationMin: 65,
       cause: 'Routine maintenance',
+      cause_vi: 'Bảo trì định kỳ',
     },
   ];
 

@@ -145,7 +145,17 @@
     "costAnalysis": "Cost Analysis",
     "estimatedCost": "Estimated Cost",
     "costPerUnit": "Cost per Unit",
-    "costTrend": "Cost Trend"
+    "costTrend": "Cost Trend",
+    "currentLoad": "Current load",
+    "peakCapacity": "Peak capacity",
+    "today": "Today",
+    "powerKw": "Power kW",
+    "kWh": "kWh",
+    "costToday": "Cost Today",
+    "costMonth": "Cost This Month",
+    "notification": "Notification",
+    "closeNotification": "Close notification",
+    "noNotification": "No notifications"
   },
   "oee": {
     "title": "OEE Analytics",
@@ -191,7 +201,36 @@
     "low": "Low",
     "medium": "Medium",
     "high": "High",
-    "critical": "Critical"
+    "critical": "Critical",
+    "riskAssessment": "Risk Assessment",
+    "highAnomalyScore": "High anomaly score",
+    "maintenanceOverdue": "Maintenance overdue",
+    "poorMachineHealth": "Poor machine health",
+    "highTemperature": "High temperature",
+    "highVibration": "High vibration",
+    "urgent": "URGENT",
+    "soon": "SOON",
+    "confirmDone": "Confirm Maintenance Done",
+    "riskScore": "Risk Score",
+    "estimatedDowntime": "Est. Downtime",
+    "recommendedAction": "Recommended",
+    "fullInspection": "Full inspection",
+    "days": "days",
+    "daysUnit": "days",
+    "hours": "hours",
+    "hoursUnit": "hours",
+    "confirmMaintenance": "Confirm Maintenance",
+    "maintainerName": "Maintainer Name",
+    "maintainerNamePlaceholder": "Enter name...",
+    "maintenanceTime": "Maintenance Time",
+    "notesOptional": "Notes (Optional)",
+    "notesPlaceholder": "Enter notes...",
+    "enterNameAlert": "Please enter a name.",
+    "confirm": "Confirm",
+    "anomalyScore": "Anomaly Score",
+    "maintenanceDue": "Maintenance Due",
+    "fullInspection": "Full inspection",
+    "hoursLabel": "hours"
   },
   "alarms": {
     "title": "Alarms & Downtime",
@@ -210,4 +249,3 @@
     "downtimePercentage": "Downtime Percentage"
   }
 }
-

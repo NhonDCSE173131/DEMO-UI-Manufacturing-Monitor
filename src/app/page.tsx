@@ -93,14 +93,14 @@ const Dashboard = () => {
               </div>
             </div>
             <div className="flex justify-between items-center">
-              <span className="text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Fault' : 'Trục Trặc'}</span>
+              <span className="text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Fault' : 'Trục trặc'}</span>
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full bg-industrial-error"></div>
                 <span className="font-bold text-industrial-error">{faultMachines}</span>
               </div>
             </div>
             <div className="flex justify-between items-center">
-              <span className="text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Idle' : 'Đang Chờ'}</span>
+              <span className="text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Idle' : 'Đang chờ'}</span>
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full bg-industrial-warning"></div>
                 <span className="font-bold text-industrial-warning">

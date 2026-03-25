@@ -1,4 +1,3 @@
-
 export const formatNumber = (value: number, decimals: number = 2): string => {
   return value.toFixed(decimals).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 };
@@ -92,7 +91,13 @@ export const getSeverityBorderColor = (severity: string): string => {
   return colors[severity] || 'border-industrial-text-secondary';
 };
 
-export const getHealthScore = (score: number): string => {
+export const getHealthScore = (score: number, selectedLanguage: 'en' | 'vi' = 'en', messages?: any): string => {
+  if (messages) {
+    if (score >= 85) return selectedLanguage === 'en' ? 'Excellent' : messages.machineDetail?.excellent || 'Rất tốt';
+    if (score >= 70) return selectedLanguage === 'en' ? 'Good' : messages.machineDetail?.good || 'Tốt';
+    if (score >= 50) return selectedLanguage === 'en' ? 'Fair' : messages.machineDetail?.fair || 'Trung bình';
+    return selectedLanguage === 'en' ? 'Poor' : messages.machineDetail?.poor || 'Kém';
+  }
   if (score >= 85) return 'Excellent';
   if (score >= 70) return 'Good';
   if (score >= 50) return 'Fair';
@@ -102,4 +107,3 @@ export const getHealthScore = (score: number): string => {
 export const calculateDowntimePercentage = (runtime: number, totalTime: number): number => {
   return totalTime > 0 ? ((totalTime - runtime) / totalTime) * 100 : 0;
 };
-

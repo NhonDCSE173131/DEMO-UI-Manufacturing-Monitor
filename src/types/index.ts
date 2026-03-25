@@ -55,9 +55,12 @@ export interface MachineEvent {
   type: EventType;
   severity: EventSeverity;
   title: string;
+  title_vi?: string;
   message: string;
+  message_vi?: string;
   durationMin?: number;
   cause?: string;
+  cause_vi?: string;
 }
 
 export interface Tool {

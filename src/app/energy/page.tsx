@@ -61,27 +61,27 @@ const EnergyPage = () => {
           <p className="metric-label mb-2">{messages.energy.currentPowerKw}</p>
           <div className="flex items-end gap-2">
             <p className="metric-number text-industrial-success">{formatNumber(totalPowerNow, 1)}</p>
-            <span className="text-industrial-success mb-1">kW</span>
+            <span className="text-industrial-success mb-1">{messages.energy.powerKw}</span>
           </div>
-          <p className="text-xs text-industrial-text-secondary mt-2">{selectedLanguage === 'en' ? 'Current load' : 'Tải hiện tại'}</p>
+          <p className="text-xs text-industrial-text-secondary mt-2">{messages.energy.currentLoad}</p>
         </div>
         <div className="card-industrial p-6">
           <p className="metric-label mb-2">{messages.energy.peakPowerToday}</p>
           <p className="metric-number text-industrial-warning">{formatNumber(peakPower, 1)}</p>
-          <p className="text-xs text-industrial-text-secondary mt-2">{selectedLanguage === 'en' ? 'Peak capacity' : 'Công suất đỉnh'}</p>
+          <p className="text-xs text-industrial-text-secondary mt-2">{messages.energy.peakCapacity}</p>
         </div>
         <div className="card-industrial p-6">
           <p className="metric-label mb-2">{messages.energy.energyToday}</p>
            <div className="flex items-end gap-2">
             <p className="metric-number text-industrial-border">{formatNumber(totalEnergyToday, 1)}</p>
-            <span className="text-industrial-text-secondary mb-1">kWh</span>
+            <span className="text-industrial-text-secondary mb-1">{messages.energy.kWh}</span>
           </div>
         </div>
         <div className="card-industrial p-6">
           <p className="metric-label mb-2">{messages.energy.energyMonth}</p>
           <div className="flex items-end gap-2">
             <p className="metric-number text-industrial-text">{formatNumber(totalEnergyMonth, 0)}</p>
-            <span className="text-industrial-text-secondary mb-1">kWh</span>
+            <span className="text-industrial-text-secondary mb-1">{messages.energy.kWh}</span>
           </div>
         </div>
       </div>
@@ -94,17 +94,17 @@ const EnergyPage = () => {
           </h3>
           <div className="flex-1 grid grid-cols-2 gap-4">
             <div className="bg-industrial-darker p-4 rounded-lg flex flex-col justify-center items-center text-center">
-              <p className="text-sm text-industrial-text-secondary mb-1">{selectedLanguage === 'en' ? 'Today' : 'Hm nay'}</p>
+              <p className="text-sm text-industrial-text-secondary mb-1">{messages.energy.today}</p>
               <p className="text-4xl font-bold text-industrial-border">${formatNumber(costToday, 2)}</p>
             </div>
             <div className="bg-industrial-darker p-4 rounded-lg flex flex-col justify-center items-center text-center">
-              <p className="text-sm text-industrial-text-secondary mb-1">{selectedLanguage === 'en' ? 'This Month' : 'Thng ny'}</p>
+              <p className="text-sm text-industrial-text-secondary mb-1">{messages.energy.costMonth}</p>
               <p className="text-4xl font-bold text-industrial-success">${formatNumber(costMonth, 2)}</p>
             </div>
           </div>
           <div className="pt-4 border-t border-industrial-border/20 mt-4">
             <p className="text-sm text-industrial-text-secondary flex justify-between">
-              <span>{selectedLanguage === 'en' ? 'Cost per Unit (kWh)' : 'Gi m—i kWh'}</span>
+              <span>{messages.energy.costPerUnit}</span>
               <span className="font-bold text-industrial-text">${costPerKwh}</span>
             </p>
           </div>
@@ -130,7 +130,7 @@ const EnergyPage = () => {
           <div className="space-y-6">
             <div>
               <div className="flex justify-between mb-1">
-                <span className="text-sm text-industrial-text-secondary">Voltage</span>
+                <span className="text-sm text-industrial-text-secondary">{messages.energy.voltage}</span>
                 <span className="text-sm font-bold text-industrial-success">400.2 V</span>
               </div>
               <div className="h-2 rounded-full bg-industrial-card border border-industrial-border/20">
@@ -139,7 +139,7 @@ const EnergyPage = () => {
             </div>
             <div>
               <div className="flex justify-between mb-1">
-                <span className="text-sm text-industrial-text-secondary">Frequency</span>
+                <span className="text-sm text-industrial-text-secondary">{messages.energy.frequency}</span>
                 <span className="text-sm font-bold text-industrial-success">50.1 Hz</span>
               </div>
               <div className="h-2 rounded-full bg-industrial-card border border-industrial-border/20">
@@ -148,7 +148,7 @@ const EnergyPage = () => {
             </div>
             <div>
               <div className="flex justify-between mb-1">
-                <span className="text-sm text-industrial-text-secondary">Power Factor</span>
+                <span className="text-sm text-industrial-text-secondary">{messages.energy.powerFactor}</span>
                 <span className="text-sm font-bold text-industrial-warning">0.94</span>
               </div>
               <div className="h-2 rounded-full bg-industrial-card border border-industrial-border/20">
@@ -161,7 +161,7 @@ const EnergyPage = () => {
         {/* Power Distribution list */}
         <div className="card-industrial p-6">
           <h3 className="text-industrial-border font-semibold mb-4">
-            {selectedLanguage === 'en' ? 'Machine Breakdown' : 'Chi tiết trạm máy'}
+            {messages.energy.powerDistributionByMachine}
           </h3>
           <div className="space-y-4 max-h-64 overflow-y-auto pr-2">
             {machines.map((machine) => {
@@ -180,7 +180,7 @@ const EnergyPage = () => {
                     </div>
                     <div className="text-right">
                       <p className="text-sm font-bold text-industrial-border">
-                        {formatNumber(machine.powerKw, 1)} kW
+                        {formatNumber(machine.powerKw, 1)} {messages.energy.powerKw}
                       </p>
                       <p className="text-xs text- промышлен-text-secondary">{formatNumber(percentage, 0)}%</p>
                     </div>

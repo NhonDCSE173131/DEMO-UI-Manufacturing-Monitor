@@ -79,7 +79,7 @@ const SettingsPage = () => {
             <p className="text-sm text-industrial-text-secondary leading-relaxed max-w-3xl">
               {selectedLanguage === 'en' 
                 ? 'A comprehensive industrial dashboard for real-time monitoring of manufacturing systems, including energy consumption, OEE analytics, machine health, and predictive maintenance features.' 
-                : 'Một bảng điều khiển công nghiệp toàn diện để giám sát các hệ thống sản xuất trong thời gian thực, bao gồm tiêu thụ năng lượng, phân tích hiệu suất tổng thể (OEE), tình trạng sức khoẻ máy móc, và tính năng bảo trì dự đoán.'}
+                : 'Một bảng điều khiển công nghiệp toàn diện để giám sát các hệ thống sản xuất trong thời gian thực, bao gồm tiêu thụ năng lượng, phân tích hiệu suất tổng thể (OEE), tình trạng sức khoẻ máy móc, và tính năng bảo trììììì dự đoán.'}
             </p>
             <p className="text-xs text-industrial-text-secondary mt-4">
               © 2026 RMSys Manufacturing Solutions. All rights reserved.

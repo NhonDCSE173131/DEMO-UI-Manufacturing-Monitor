@@ -2,7 +2,7 @@
 
 import { useMachineStore } from '@/lib/store';
 import { formatNumber } from '@/lib/utils';
-import { Wrench, CheckCircle, AlertTriangle, AlertCircle, Calendar, CalendarCheck, FileText, Check, X, ShieldCheck } from 'lucide-react';
+import { Wrench, AlertTriangle, X, ShieldCheck } from 'lucide-react';
 import enMessages from '@/locales/en.json';
 import viMessages from '@/locales/vi.json';
 import { useState } from 'react';
@@ -16,14 +16,13 @@ const MaintenancePage = () => {
   const [maintenanceTime, setMaintenanceTime] = useState(new Date().toISOString().slice(0, 16));
   const [maintenanceNotes, setMaintenanceNotes] = useState('');
 
-  const criticalMaintenance = machines.filter((m) => m.maintenanceDueDays <= 7).sort((a, b) => a.maintenanceDueDays - b.maintenanceDueDays);
   const riskMachines = machines.filter((m) => m.maintenanceDueDays <= 14).sort((a, b) => a.maintenanceDueDays - b.maintenanceDueDays);
 
   const getRiskLevel = (score: number) => {
-    if (score >= 80) return { label: 'CRITICAL', color: 'industrial-error', bg: 'bg-industrial-error/10' };
-    if (score >= 60) return { label: 'HIGH', color: 'industrial-warning', bg: 'bg-industrial-warning/10' };
-    if (score >= 40) return { label: 'MEDIUM', color: 'industrial-info', bg: 'bg-industrial-info/10' };
-    return { label: 'LOW', color: 'industrial-success', bg: 'bg-industrial-success/10' };
+    if (score >= 80) return { label: messages.maintenance.critical, color: 'industrial-error', bg: 'bg-industrial-error/10' };
+    if (score >= 60) return { label: messages.maintenance.high, color: 'industrial-warning', bg: 'bg-industrial-warning/10' };
+    if (score >= 40) return { label: messages.maintenance.medium, color: 'industrial-info', bg: 'bg-industrial-info/10' };
+    return { label: messages.maintenance.low, color: 'industrial-success', bg: 'bg-industrial-success/10' };
   };
 
   return (
@@ -60,7 +59,7 @@ const MaintenancePage = () => {
                     <div>
                       <p className="font-semibold text-industrial-text">{machine.name}</p>
                       <p className="text-xs text-industrial-text-secondary">
-                        {messages.maintenance.daysRemaining}: {machine.maintenanceDueDays} {selectedLanguage === 'en' ? 'days' : 'ngày'}
+                        {messages.maintenance.daysRemaining}: {machine.maintenanceDueDays} {selectedLanguage === 'en' ? messages.maintenance.days : messages.maintenance.daysUnit}
                       </p>
                     </div>
                   </div>
@@ -71,7 +70,7 @@ const MaintenancePage = () => {
                         : 'text-industrial-warning'
                     }`}
                   >
-                    {machine.maintenanceDueDays <= 7 ? 'URGENT' : 'SOON'}
+                    {machine.maintenanceDueDays <= 7 ? messages.maintenance.urgent : messages.maintenance.soon}
                   </span>
                 </div>
 
@@ -80,22 +79,22 @@ const MaintenancePage = () => {
                     onClick={() => setMaintainingMachineId(machine.id)}
                     className="text-xs px-3 py-1.5 rounded bg-industrial-success/20 text-industrial-success border border-industrial-success/30 hover:bg-industrial-success/40 transition-colors"
                   >
-                    {selectedLanguage === 'en' ? 'Confirm Maintenance Done' : ' bo tr'}
+                    {messages.maintenance.confirmDone}
                   </button>
                 </div>
 
                 <div className="grid grid-cols-3 gap-2 text-xs bg-industrial-darker p-2 rounded">
                   <div>
-                    <p className="text-industrial-text-secondary">Risk Score</p>
+                    <p className="text-industrial-text-secondary">{messages.maintenance.riskScore}</p>
                     <p className="font-semibold text-industrial-error">{100 - machine.machineHealth}%</p>
                   </div>
                   <div>
-                    <p className="text-industrial-text-secondary">Est. Downtime</p>
-                    <p className="font-semibold">2-4 {selectedLanguage === 'en' ? 'hours' : 'giờ'}</p>
+                    <p className="text-industrial-text-secondary">{messages.maintenance.estimatedDowntime}</p>
+                    <p className="font-semibold">2-4 {selectedLanguage === 'en' ? messages.maintenance.hours : messages.maintenance.hoursUnit}</p>
                   </div>
                   <div>
-                    <p className="text-industrial-text-secondary">Recommended</p>
-                    <p className="font-semibold">Full inspection</p>
+                    <p className="text-industrial-text-secondary">{messages.maintenance.recommendedAction}</p>
+                    <p className="font-semibold">{messages.maintenance.fullInspection}</p>
                   </div>
                 </div>
               </div>
@@ -154,19 +153,19 @@ const MaintenancePage = () => {
 
                     <div className="grid grid-cols-3 gap-2 text-xs">
                       <div>
-                        <p className="text-industrial-text-secondary">Anomaly Score</p>
+                        <p className="text-industrial-text-secondary">{messages.maintenance.anomalyScore}</p>
                         <p className={`font-semibold ${machine.anomalyScore > 0.5 ? 'text-industrial-warning' : 'text-industrial-success'}`}>
                           {formatNumber(machine.anomalyScore * 100, 0)}%
                         </p>
                       </div>
                       <div>
-                        <p className="text-industrial-text-secondary">Maintenance Due</p>
+                        <p className="text-industrial-text-secondary">{messages.maintenance.maintenanceDue}</p>
                         <p className={`font-semibold ${machine.maintenanceDueDays <= 7 ? 'text-industrial-error animate-pulse' : 'text-industrial-text'}`}>
                           {machine.maintenanceDueDays}d
                         </p>
                       </div>
                       <div>
-                        <p className="text-industrial-text-secondary">Status</p>
+                        <p className="text-industrial-text-secondary">{messages.machine.status}</p>
                         <p className="font-semibold text-industrial-text flex items-center gap-1">
                           <span className="w-2 h-2 rounded-full" style={{backgroundColor: machine.status === 'RUN' ? '#22c55e' : machine.status === 'FAULT' ? '#ef4444' : '#facc15'}}></span>
                           {machine.status}
@@ -183,16 +182,16 @@ const MaintenancePage = () => {
         <div className="card-industrial p-6">
           <h3 className="text-industrial-border font-semibold mb-6 flex items-center gap-2">
             <AlertTriangle size={18} />
-            Risk Assessment
+            {messages.maintenance.riskAssessment}
           </h3>
           <div className="space-y-4">
             {machines.map((machine) => {
               const riskFactors = [];
-              if (machine.anomalyScore > 0.7) riskFactors.push({text: 'High anomaly score', level: 'warning'});
-              if (machine.maintenanceDueDays <= 7) riskFactors.push({text: 'Maintenance overdue', level: 'error'});
-              if (machine.machineHealth < 60) riskFactors.push({text: 'Poor machine health', level: 'error'});
-              if (machine.temperatureC && machine.temperatureC > 75) riskFactors.push({text: 'High temperature', level: 'warning'});
-              if (machine.vibrationPct && machine.vibrationPct > 60) riskFactors.push({text: 'High vibration', level: 'error'});
+              if (machine.anomalyScore > 0.7) riskFactors.push({text: messages.maintenance.highAnomalyScore, level: 'warning'});
+              if (machine.maintenanceDueDays <= 7) riskFactors.push({text: messages.maintenance.maintenanceOverdue, level: 'error'});
+              if (machine.machineHealth < 60) riskFactors.push({text: messages.maintenance.poorMachineHealth, level: 'error'});
+              if (machine.temperatureC && machine.temperatureC > 75) riskFactors.push({text: messages.maintenance.highTemperature, level: 'warning'});
+              if (machine.vibrationPct && machine.vibrationPct > 60) riskFactors.push({text: messages.maintenance.highVibration, level: 'error'});
 
               if (riskFactors.length === 0) return null;
 
@@ -211,7 +210,7 @@ const MaintenancePage = () => {
                         className={`px-3 py-1 text-xs rounded-full border flex items-center gap-1 ${factor.level === 'error' ? 'bg-industrial-error/10 text-industrial-error border-industrial-error/30' : 'bg-industrial-warning/10 text-industrial-warning border-industrial-warning/30'}`}
                       >
                         <AlertTriangle size={12} />
-                        {selectedLanguage === 'vi' ? factor.text.replace('High anomaly score', 'Điểm bất thường cao').replace('Maintenance overdue', 'Quá hạn bảo trì').replace('Poor machine health', 'Sức khoẻ máy kém').replace('High temperature', 'Nhiệt độ cao').replace('High vibration', 'Độ rung cao') : factor.text}
+                        {factor.text}
                       </span>
                     ))}
                   </div>
@@ -229,7 +228,7 @@ const MaintenancePage = () => {
             <div className="flex justify-between items-center p-4 border-b border-industrial-border/20 bg-industrial-darker">
               <h2 className="text-lg font-semibold text-industrial-text flex items-center gap-2">
                  <Wrench size={20} className="text-industrial-border" />
-                 {selectedLanguage === 'en' ? 'Confirm Maintenance' : 'Xác nhận bảo trì'}
+                 {messages.maintenance.confirmMaintenance}
               </h2>
               <button className="text-gray-400 hover:text-white" onClick={() => setMaintainingMachineId(null)}>
                  <X size={24} />
@@ -238,19 +237,19 @@ const MaintenancePage = () => {
             <div className="p-6 space-y-4">
                <div>
                   <label className="block text-sm text-industrial-text-secondary mb-1">
-                     {selectedLanguage === 'en' ? 'Maintainer Name' : 'Tên người bảo trì'}
+                     {messages.maintenance.maintainerName}
                   </label>
                   <input
                      type="text"
                      value={maintainerName}
                      onChange={(e) => setMaintainerName(e.target.value)}
-                     placeholder={selectedLanguage === 'en' ? 'Enter name...' : 'Nhập tên...'}
+                     placeholder={messages.maintenance.maintainerNamePlaceholder}
                      className="w-full bg-[#111] border border-gray-700 rounded-md py-2 px-3 text-white focus:outline-none focus:border-industrial-border"
                   />
                </div>
                <div>
                   <label className="block text-sm text-industrial-text-secondary mb-1">
-                     {selectedLanguage === 'en' ? 'Maintenance Time' : 'Thời gian bảo trì'}
+                     {messages.maintenance.maintenanceTime}
                   </label>
                   <input
                      type="datetime-local"
@@ -262,25 +261,25 @@ const MaintenancePage = () => {
                </div>
                <div>
                   <label className="block text-sm text-industrial-text-secondary mb-1">
-                     {selectedLanguage === 'en' ? 'Notes (Optional)' : 'Ghi chú (Tuỳ chọn)'}
+                     {messages.maintenance.notesOptional}
                   </label>
                   <input
                      type="text"
                      value={maintenanceNotes}
                      onChange={(e) => setMaintenanceNotes(e.target.value)}
-                     placeholder={selectedLanguage === 'en' ? 'Enter notes...' : 'Nhập ghi chú...'}
+                     placeholder={messages.maintenance.notesPlaceholder}
                      className="w-full bg-[#111] border border-gray-700 rounded-md py-2 px-3 text-white focus:outline-none focus:border-industrial-border"
                   />
                </div>
             </div>
             <div className="p-4 border-t border-industrial-border/20 bg-industrial-darker flex justify-end gap-3">
                <button onClick={() => setMaintainingMachineId(null)} className="px-4 py-2 rounded border border-gray-600 text-gray-300 hover:bg-gray-800 transition-colors">
-                  {selectedLanguage === 'en' ? 'Cancel' : 'Huỷ'}
+                  {messages.common.cancel}
                </button>
                <button 
                   onClick={() => {
                      if (!maintainerName.trim()) {
-                        alert(selectedLanguage === 'en' ? 'Please enter a name.' : 'Vui lòng nhập tên.');
+                        alert(messages.maintenance.enterNameAlert);
                         return;
                      }
                      resolveMaintenance(maintainingMachineId, {
@@ -294,7 +293,7 @@ const MaintenancePage = () => {
                   }} 
                   className="px-4 py-2 rounded bg-industrial-success/20 border border-industrial-success/50 text-industrial-success hover:bg-industrial-success/40 transition-colors font-medium"
                >
-                  {selectedLanguage === 'en' ? 'Confirm' : 'Xác nhận'}
+                  {messages.maintenance.confirm}
                </button>
             </div>
           </div>

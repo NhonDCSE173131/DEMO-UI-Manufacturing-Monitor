@@ -282,7 +282,7 @@ const ToolsPage = () => {
                </div>
                <div>
                   <label className="block text-sm text-industrial-text-secondary mb-1">
-                     {selectedLanguage === 'en' ? 'Notes (Optional)' : 'Ghi chú (Tuỳ chọn)'}
+                     {selectedLanguage === 'en' ? 'Notes (Optional)' : 'Ghi chúúúúú (Tuỳ chọn)'}
                   </label>
                   <input
                      type="text"
