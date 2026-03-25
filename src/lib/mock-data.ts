@@ -1,0 +1,398 @@
+'use client';
+
+import type { Machine, MachineEvent, Tool, PowerMetrics } from '@/types';
+
+// Mock Machines Data
+export const mockMachines: Machine[] = [
+  {
+    id: 'M001',
+    code: 'KUKA-01',
+    name: 'Robot Hàn KUKA Cell',
+    type: 'robot-welding',
+    brand: 'KUKA',
+    controller: 'KUKA KR C4',
+    plc: 'Siemens S7-1200',
+    status: 'RUN',
+    mode: 'AUTO',
+    image: '/img/kukarobot.jpeg',
+    oee: 87,
+    availability: 92,
+    performance: 95,
+    quality: 96,
+    powerKw: 24.5,
+    energyTodayKwh: 187.2,
+    energyMonthKwh: 4123.8,
+    cycleTimeSec: 45,
+    idealCycleTimeSec: 42,
+    partCount: 1024,
+    goodCount: 985,
+    ngCount: 39,
+    machineHealth: 85,
+    maintenanceDueDays: 12,
+    anomalyScore: 0.15,
+    activeAlarms: 1,
+    toolLifeRemainingPct: 65,
+    weldingCurrentA: 185,
+    servoLoadPct: 72,
+    temperatureC: 45,
+    currentProgram: 'WELD_PART_A123',
+    area: 'Assembly Line A',
+  },
+  {
+    id: 'M002',
+    code: 'CNC-MILL-01',
+    name: 'Máy Phay CNC Sinumerik',
+    type: 'cnc-milling',
+    brand: 'Siemens Sinumerik',
+    controller: 'Siemens 840D SL',
+    plc: 'Siemens S7-1500',
+    status: 'RUN',
+    mode: 'AUTO',
+    image: '/img/may.png',
+    oee: 82,
+    availability: 88,
+    performance: 93,
+    quality: 92,
+    powerKw: 18.7,
+    energyTodayKwh: 145.6,
+    energyMonthKwh: 3267.4,
+    cycleTimeSec: 120,
+    idealCycleTimeSec: 115,
+    partCount: 512,
+    goodCount: 498,
+    ngCount: 14,
+    machineHealth: 78,
+    maintenanceDueDays: 7,
+    anomalyScore: 0.28,
+    activeAlarms: 2,
+    toolLifeRemainingPct: 38,
+    spindleSpeedRpm: 3850,
+    feedRateMmMin: 450,
+    cuttingSpeedMMin: 120,
+    depthOfCutMm: 2.5,
+    feedPerToothMm: 0.05,
+    widthOfCutMm: 8.0,
+    materialRemovalRateCm3Min: 45.3,
+    spindleLoadPct: 68,
+    vibrationPct: 42,
+    temperatureC: 62,
+    currentProgram: 'MILL_PART_B456',
+    area: 'Machining Center',
+  },
+  {
+    id: 'M003',
+    code: 'CNC-TURN-01',
+    name: 'Máy Tiện CNC',
+    type: 'cnc-turning',
+    brand: 'Haas',
+    controller: 'Haas CNC',
+    plc: 'Siemens S7-1200',
+    status: 'IDLE',
+    mode: 'AUTO',
+    image: '/img/maycat.png',
+    oee: 0,
+    availability: 100,
+    performance: 0,
+    quality: 0,
+    powerKw: 2.1,
+    energyTodayKwh: 12.3,
+    energyMonthKwh: 892.5,
+    cycleTimeSec: 85,
+    idealCycleTimeSec: 80,
+    partCount: 0,
+    goodCount: 0,
+    ngCount: 0,
+    machineHealth: 82,
+    maintenanceDueDays: 21,
+    anomalyScore: 0.05,
+    activeAlarms: 0,
+    toolLifeRemainingPct: 72,
+    spindleSpeedRpm: 0,
+    feedRateMmMin: 0,
+    cuttingSpeedMMin: 0,
+    depthOfCutMm: 0,
+    feedPerToothMm: 0,
+    widthOfCutMm: 0,
+    materialRemovalRateCm3Min: 0,
+    spindleLoadPct: 0,
+    vibrationPct: 5,
+    temperatureC: 35,
+    currentProgram: 'IDLE',
+    area: 'Machining Center',
+  },
+  {
+    id: 'M004',
+    code: 'ROBOT-PP-01',
+    name: 'Robot Gắp/Đặt Leantec',
+    type: 'pick-place',
+    brand: 'Leantec',
+    controller: 'Leantec Control',
+    plc: 'Delta DVP',
+    status: 'RUN',
+    mode: 'AUTO',
+    image: '/img/leantec-robot.jpeg',
+    oee: 89,
+    availability: 94,
+    performance: 96,
+    quality: 97,
+    powerKw: 12.3,
+    energyTodayKwh: 98.4,
+    energyMonthKwh: 2134.6,
+    cycleTimeSec: 35,
+    idealCycleTimeSec: 34,
+    partCount: 1456,
+    goodCount: 1412,
+    ngCount: 44,
+    machineHealth: 88,
+    maintenanceDueDays: 18,
+    anomalyScore: 0.12,
+    activeAlarms: 0,
+    toolLifeRemainingPct: 58,
+    servoLoadPct: 55,
+    temperatureC: 40,
+    currentProgram: 'PP_PART_C789',
+    area: 'Assembly Line B',
+  },
+  {
+    id: 'M005',
+    code: 'CELL-POLISH-01',
+    name: 'Cell Cắt & Máy Laser',
+    type: 'cutting-polishing',
+    brand: 'Custom Automation',
+    controller: 'PLC Mitsubishi',
+    plc: 'Mitsubishi FX5',
+    status: 'FAULT',
+    mode: 'AUTO',
+    image: '/img/Cong-Nghe-Laser-50.png',
+    oee: 0,
+    availability: 0,
+    performance: 0,
+    quality: 0,
+    powerKw: 0,
+    energyTodayKwh: 0,
+    energyMonthKwh: 1523.2,
+    cycleTimeSec: 95,
+    idealCycleTimeSec: 90,
+    partCount: 234,
+    goodCount: 215,
+    ngCount: 19,
+    machineHealth: 42,
+    maintenanceDueDays: 2,
+    anomalyScore: 0.82,
+    activeAlarms: 3,
+    toolLifeRemainingPct: 8,
+    spindleLoadPct: 0,
+    vibrationPct: 88,
+    temperatureC: 78,
+    currentProgram: 'FAULT_MODE',
+    area: 'Finishing Department',
+  },
+];
+
+// Mock Events Data
+export const generateMockEvents = (): MachineEvent[] => {
+  const causes = [
+    'Tool wear detected',
+    'High vibration',
+    'Temperature exceeds limit',
+    'Cycle time delay',
+    'Operator intervention',
+    'Power fluctuation',
+    'Scheduled maintenance',
+    'Sensor malfunction',
+  ];
+
+  const events: MachineEvent[] = [
+    {
+      id: 'E001',
+      machineId: 'M001',
+      timestamp: new Date(Date.now() - 5 * 60000).toISOString(),
+      type: 'warning',
+      severity: 'warning',
+      title: 'High Servo Load',
+      message: 'Servo load exceeded 75% threshold',
+      durationMin: 0,
+      cause: causes[0],
+    },
+    {
+      id: 'E002',
+      machineId: 'M002',
+      timestamp: new Date(Date.now() - 15 * 60000).toISOString(),
+      type: 'warning',
+      severity: 'warning',
+      title: 'Tool Life Low',
+      message: 'Tool T45 approaching end of life (38% remaining)',
+      durationMin: 0,
+      cause: causes[0],
+    },
+    {
+      id: 'E003',
+      machineId: 'M002',
+      timestamp: new Date(Date.now() - 45 * 60000).toISOString(),
+      type: 'downtime',
+      severity: 'critical',
+      title: 'Unplanned Downtime',
+      message: 'Machine stopped unexpectedly',
+      durationMin: 8,
+      cause: causes[5],
+    },
+    {
+      id: 'E004',
+      machineId: 'M005',
+      timestamp: new Date(Date.now() - 2 * 60000).toISOString(),
+      type: 'critical',
+      severity: 'critical',
+      title: 'Machine Fault',
+      message: 'Critical fault detected - Immediate maintenance required',
+      durationMin: 0,
+      cause: causes[7],
+    },
+    {
+      id: 'E005',
+      machineId: 'M005',
+      timestamp: new Date(Date.now() - 25 * 60000).toISOString(),
+      type: 'warning',
+      severity: 'warning',
+      title: 'Abnormal Vibration',
+      message: 'Vibration level increased by 35%',
+      durationMin: 18,
+      cause: causes[1],
+    },
+    {
+      id: 'E006',
+      machineId: 'M001',
+      timestamp: new Date(Date.now() - 120 * 60000).toISOString(),
+      type: 'info',
+      severity: 'info',
+      title: 'Maintenance Completed',
+      message: 'Scheduled maintenance completed successfully',
+      durationMin: 65,
+      cause: 'Routine maintenance',
+    },
+  ];
+
+  return events;
+};
+
+// Mock Tools Data
+export const mockTools: Tool[] = [
+  {
+    id: 'T001',
+    machineId: 'M002',
+    name: 'End Mill T45 Ø10mm',
+    type: 'End Mill',
+    remainingLifePct: 38,
+    estimatedPartsRemaining: 156,
+    estimatedHoursRemaining: 12.5,
+    usageTimeHours: 68.3,
+    wearTrend: [0, 8, 16, 25, 32, 38],
+    lastReplacedDate: '2026-03-01',
+  },
+  {
+    id: 'T002',
+    machineId: 'M002',
+    name: 'Slot Drill T52 Ø8mm',
+    type: 'Slot Drill',
+    remainingLifePct: 72,
+    estimatedPartsRemaining: 412,
+    estimatedHoursRemaining: 35.2,
+    usageTimeHours: 28.9,
+    wearTrend: [0, 6, 12, 19, 28],
+    lastReplacedDate: '2026-02-15',
+  },
+  {
+    id: 'T003',
+    machineId: 'M005',
+    name: 'Diamond Bit Cutting D15',
+    type: 'Cutting Bit',
+    remainingLifePct: 8,
+    estimatedPartsRemaining: 12,
+    estimatedHoursRemaining: 1.2,
+    usageTimeHours: 125.8,
+    wearTrend: [0, 15, 28, 45, 62, 78, 88],
+    lastReplacedDate: '2026-01-20',
+  },
+  {
+    id: 'T004',
+    machineId: 'M001',
+    name: 'Welding Gun Tip Cu',
+    type: 'Electrode',
+    remainingLifePct: 65,
+    estimatedPartsRemaining: 8500,
+    estimatedHoursRemaining: 145.3,
+    usageTimeHours: 78.2,
+    wearTrend: [0, 5, 12, 18, 28, 35],
+    lastReplacedDate: '2026-02-28',
+  },
+];
+
+// Power metrics history
+export const generatePowerMetricsHistory = (): PowerMetrics[] => {
+  const metrics: PowerMetrics[] = [];
+  const now = Date.now();
+
+  for (let i = 23; i >= 0; i--) {
+    const timestamp = new Date(now - i * 3600000);
+    metrics.push({
+      timestamp: timestamp.toISOString(),
+      voltageV: 400 + Math.random() * 10 - 5,
+      currentA: 50 + Math.random() * 30,
+      powerKw: 55 + Math.random() * 25 - Math.sin(i / 4) * 10,
+      energyKwh: (i + 1) * 7.8 + Math.random() * 2,
+      frequency: 50 + Math.random() * 0.2 - 0.1,
+      powerFactor: 0.92 + Math.random() * 0.05,
+      thd: 4 + Math.random() * 2,
+    });
+  }
+
+  return metrics;
+};
+
+// Machine parameters historical data
+export const generateMachineTimeSeries = (machineId: string) => {
+  const data: any[] = [];
+  const now = Date.now();
+  const machine = mockMachines.find((m) => m.id === machineId);
+
+  if (!machine) return data;
+
+  for (let i = 119; i >= 0; i--) {
+    const timestamp = new Date(now - i * 300000); // 5-minute intervals
+    data.push({
+      timestamp: timestamp.toISOString(),
+      power: machine.powerKw + (Math.random() - 0.5) * 4,
+      cycleTime: machine.cycleTimeSec + (Math.random() - 0.5) * 10,
+      spindleLoad: machine.spindleLoadPct ? machine.spindleLoadPct + (Math.random() - 0.5) * 15 : null,
+      temperature: (machine.temperatureC || 40) + (Math.random() - 0.5) * 8,
+      vibration: (machine.vibrationPct || 20) + Math.random() * 10,
+      oee: machine.oee + (Math.random() - 0.5) * 5,
+    });
+  }
+
+  return data;
+};
+
+// Downtime events for Pareto chart
+export const generateDowntimeEvents = () => {
+  return [
+    { cause: 'Tool Wear', duration: 156, count: 8 },
+    { cause: 'Power Fluctuation', duration: 98, count: 5 },
+    { cause: 'Sensor Malfunction', duration: 72, count: 4 },
+    { cause: 'Maintenance', duration: 240, count: 3 },
+    { cause: 'Operator Intervention', duration: 45, count: 6 },
+    { cause: 'Mechanical Issue', duration: 128, count: 2 },
+  ];
+};
+
+// Pareto OEE root causes
+export const generateOEERootCauses = () => {
+  return [
+    { cause: 'Equipment Downtime', impact: 28 },
+    { cause: 'Reduced Speed', impact: 22 },
+    { cause: 'Quality Defects', impact: 18 },
+    { cause: 'Setup Loss', impact: 15 },
+    { cause: 'Adjustment', impact: 12 },
+    { cause: 'Other', impact: 5 },
+  ];
+};
+
