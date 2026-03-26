@@ -29,7 +29,64 @@
     "search": "Tìm Kiếm",
     "filter": "Lọc",
     "sort": "Sắp Xếp",
-    "language": "Ngôn Ngữ"
+    "language": "Ngôn Ngữ",
+    "appTagline": "Trung Tâm Điều Hành Sản Xuất",
+    "systemStatus": "Trạng Thái Hệ Thống",
+    "online": "Trực tuyến"
+  },
+  "header": {
+    "globalFilters": "Bộ lọc toàn cục",
+    "allShifts": "Tất cả ca",
+    "shiftA": "Ca A",
+    "shiftB": "Ca B",
+    "shiftC": "Ca C",
+    "allAreas": "Tất cả khu vực",
+    "allStatus": "Tất cả trạng thái",
+    "openAlarms": "Mở cảnh báo",
+    "maintenanceQueue": "Hàng đợi bảo trì",
+    "role": "Vai trò",
+    "routes": {
+      "dashboard": {
+        "title": "Trung Tâm Điều Hành Xưởng",
+        "subtitle": "Tổng quan thời gian thực về máy, rủi ro và năng lượng",
+        "breadcrumb": "Dashboard"
+      },
+      "machines": {
+        "title": "Giám Sát Máy",
+        "subtitle": "Theo dõi trạng thái, telemetry và sức khỏe máy",
+        "breadcrumb": "Máy móc"
+      },
+      "energy": {
+        "title": "Trung Tâm Năng Lượng",
+        "subtitle": "Theo dõi công suất, phân bố và chi phí năng lượng",
+        "breadcrumb": "Năng lượng"
+      },
+      "oee": {
+        "title": "Phân Tích OEE",
+        "subtitle": "Theo dõi availability, performance và quality",
+        "breadcrumb": "OEE"
+      },
+      "tools": {
+        "title": "Vòng Đời Dao Cụ",
+        "subtitle": "Giám sát mòn dao và kế hoạch thay thế",
+        "breadcrumb": "Dao cụ"
+      },
+      "maintenance": {
+        "title": "Trung Tâm Bảo Trì",
+        "subtitle": "Rủi ro sức khỏe máy, lịch và thao tác kỹ thuật",
+        "breadcrumb": "Bảo trì"
+      },
+      "alarms": {
+        "title": "Trung Tâm Cảnh Báo",
+        "subtitle": "Theo dõi mức độ, thời lượng và nguyên nhân gốc",
+        "breadcrumb": "Cảnh báo"
+      },
+      "settings": {
+        "title": "Cài Đặt Hệ Thống",
+        "subtitle": "Tùy chọn chung và cấu hình nền tảng",
+        "breadcrumb": "Cài đặt"
+      }
+    }
   },
   "machine": {
     "status": "Trạng Thái",
@@ -86,7 +143,23 @@
     "oeeTrend": "OEE Theo Máy",
     "powerDistribution": "Phân Bố Công Suất",
     "downtimeCause": "Nguyên Nhân Dừng Máy (Pareto)",
-    "downtimeHeatmap": "Sơ Đồ Nhiệt Dừng Máy"
+    "downtimeHeatmap": "Sơ Đồ Nhiệt Dừng Máy",
+    "noMachineMatchFilter": "Không có máy phù hợp bộ lọc hiện tại. Đang hiển thị toàn bộ xưởng.",
+    "shift": "Ca",
+    "day": "Ngày",
+    "week": "Tuần",
+    "exportSnapshot": "Xuất ảnh chụp",
+    "good": "Đạt",
+    "ng": "Lỗi",
+    "viewAllEvents": "Xem tất cả sự kiện →",
+    "health": "Sức khỏe",
+    "allMachinesHealthy": "Tất cả máy đều ổn định",
+    "viewMaintenance": "Xem bảo trì →",
+    "plantTopology": "Tổng quan cấu trúc nhà máy",
+    "powerShort": "Điện",
+    "partsShort": "Sản lượng",
+    "healthShort": "Sức khỏe",
+    "alarmsShort": "Cảnh báo"
   },
   "machineDetail": {
     "machineInfo": "Thông Tin Máy",
@@ -121,7 +194,15 @@
     "severity": "Mức Độ",
     "message": "Thông Báo",
     "duration": "Thời Lượng",
-    "cause": "Nguyên Nhân"
+    "cause": "Nguyên Nhân",
+    "realtimeOeeAnalytics": "Phân Tích OEE Thời Gian Thực",
+    "targetVsActual": "Dự Kiến vs Thực Tế",
+    "timeRangeLabel": "Khoảng thời gian",
+    "timeRange60s": "60 giây",
+    "timeRange1h": "1 giờ",
+    "timeRange1d": "1 ngày",
+    "timeRange1w": "1 tuần",
+    "timeRange1m": "1 tháng"
   },
   "energy": {
     "title": "Giám Sát Năng Lượng",
@@ -238,7 +319,7 @@
     "cause": "Nguyên Nhân",
     "downtimeCausesPareto": "Nguyên Nhân Dừng Máy (Pareto)",
     "mtbf": "MTBF (Thời Gian Trung Bình Giữa Các Lỗi)",
-    "mttr": "MTTR (Thời Gian Trung Bình Tới Khi Sữa Chữa)",
+    "mttr": "MTTR (Thời Gian Trung Bình Tới Khi Sửa Chữa)",
     "totalDowntime": "Tổng Thời Gian Dừng",
     "downtimePercentage": "Phần Trăm Dừng Máy"
   }

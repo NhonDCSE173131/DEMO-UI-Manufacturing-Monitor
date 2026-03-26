@@ -1,14 +1,47 @@
 export type MachineStatus = 'RUN' | 'IDLE' | 'STOP' | 'FAULT' | 'MAINT';
 export type MachineMode = 'AUTO' | 'MANUAL' | 'SETUP';
 export type MachineType = 'robot-welding' | 'cnc-milling' | 'cnc-turning' | 'pick-place' | 'cutting-polishing';
+export type MachineCategory = 'robot_only' | 'cnc_machine' | 'robot_cnc_cell';
 export type EventType = 'info' | 'warning' | 'critical' | 'downtime' | 'maintenance';
 export type EventSeverity = 'info' | 'warning' | 'critical';
+export type EventPlanType = 'planned' | 'unplanned';
+
+export interface RawTelemetry {
+  state: MachineStatus;
+  mode: MachineMode;
+  powerKw?: number;
+  temperatureC?: number;
+  vibrationPct?: number;
+  spindleRpm?: number;
+  feedRateMmMin?: number;
+  servoLoadPct?: number;
+  programName?: string;
+}
+
+export interface ComputedMetrics {
+  oee?: number;
+  availability?: number;
+  performance?: number;
+  quality?: number;
+  healthScore?: number;
+  mtbf?: number;
+  mttr?: number;
+}
+
+export interface PredictionMetrics {
+  remainingToolLifePct?: number;
+  remainingMaintenanceHours?: number;
+  maintenanceRisk?: 'low' | 'medium' | 'high';
+  predictedFailureWindow?: string;
+  recommendation?: string;
+}
 
 export interface Machine {
   id: string;
   code: string;
   name: string;
   type: MachineType;
+  category: MachineCategory;
   brand: string;
   controller: string;
   plc: string;
@@ -46,6 +79,9 @@ export interface Machine {
   servoLoadPct?: number;
   currentProgram: string;
   area: string;
+  rawTelemetry?: RawTelemetry;
+  computedMetrics?: ComputedMetrics;
+  predictions?: PredictionMetrics;
 }
 
 export interface MachineEvent {
@@ -59,8 +95,14 @@ export interface MachineEvent {
   message: string;
   message_vi?: string;
   durationMin?: number;
+  startTime?: string;
+  endTime?: string;
   cause?: string;
   cause_vi?: string;
+  acknowledged?: boolean;
+  acknowledgedBy?: string;
+  plannedType?: EventPlanType;
+  stopReasonCode?: string;
 }
 
 export interface Tool {

@@ -56,7 +56,7 @@ export const formatDate = (isoString: string): string => {
 export const getStatusColor = (status: string): string => {
   const colors: Record<string, string> = {
     RUN: 'industrial-success',
-    IDLE: 'industrial-warning',
+    IDLE: 'industrial-info',
     STOP: 'industrial-warning',
     FAULT: 'industrial-error',
     MAINT: 'industrial-info',

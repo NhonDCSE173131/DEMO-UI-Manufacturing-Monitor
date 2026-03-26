@@ -4,11 +4,12 @@ import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useMachineStore } from '@/lib/store';
 import { formatNumber, formatDateTime, getHealthScore } from '@/lib/utils';
-import { generateMachineTimeSeries } from '@/lib/mock-data';
-import { Settings, Thermometer, Zap, Activity, Clock, Cpu, BarChart3, TrendingUp, Package, AlertTriangle, X } from 'lucide-react';
+import { Thermometer, Zap, Activity, Clock, Cpu, BarChart3, TrendingUp, Package, AlertTriangle, X } from 'lucide-react';
 import ReactECharts from 'echarts-for-react';
 import enMessages from '@/locales/en.json';
 import viMessages from '@/locales/vi.json';
+import { TimeRangeSelector, TimeRange } from '@/components/TimeRangeSelector';
+import { getTimeRangeConfig } from '@/lib/time-range-config';
 
 function MachineDetailContent() {
   const searchParams = useSearchParams();
@@ -17,6 +18,8 @@ function MachineDetailContent() {
   
   const initialMachine = machines.find(m => m.id === machineId) || machines[0];
   const [selectedMachineId, setSelectedMachineId] = useState(initialMachine.id);
+  const [timeRange, setTimeRange] = useState<TimeRange>('1h');
+  const [metricRange, setMetricRange] = useState<TimeRange>('1h');
   
   useEffect(() => {
     if (machineId) {
@@ -27,6 +30,14 @@ function MachineDetailContent() {
 
   const selectedMachine = machines.find(m => m.id === selectedMachineId) || machines[0];
   const messages = selectedLanguage === 'en' ? enMessages : viMessages;
+  const getStatusLabel = (status: string) => {
+    if (status === 'RUN') return messages.machine.running;
+    if (status === 'FAULT') return messages.machine.fault;
+    if (status === 'IDLE') return messages.machine.idle;
+    if (status === 'STOP') return messages.machine.stopped;
+    if (status === 'MAINT') return messages.machine.maintenance;
+    return status;
+  };
 
   const machineEvents = events.filter((e) => e.machineId === selectedMachine.id).slice(0, 5);
 
@@ -92,13 +103,29 @@ function MachineDetailContent() {
      });
   }, [selectedMachine]);
 
+  const getHistoryWindow = (range: TimeRange) => {
+    const totalMinutes = getTimeRangeConfig(range).totalMinutes;
+    const startTime = Date.now() - totalMinutes * 60 * 1000;
+    return history.filter((point) => new Date(point.timestamp).getTime() >= startTime);
+  };
+
+  const realtimeHistory = getHistoryWindow(timeRange);
+  const metricHistory = getHistoryWindow(metricRange);
+  const productionTotal = Math.max(1, selectedMachine.partCount);
+  const goodRatio = (selectedMachine.goodCount / productionTotal) * 100;
+  const ngRatio = (selectedMachine.ngCount / productionTotal) * 100;
+
   const oeeChartOptions = {
     tooltip: { trigger: 'axis', backgroundColor: '#111', borderColor: '#17a2b8', textStyle: { color: '#fff' } },
-    grid: { left: '1%', right: '1%', bottom: '5%', top: '5%', containLabel: false },
+    legend: {
+      top: 0,
+      textStyle: { color: '#8fb3d9', fontSize: 10 },
+    },
+    grid: { left: '1%', right: '1%', bottom: '5%', top: '18%', containLabel: false },
     xAxis: { 
        type: 'category', 
        boundaryGap: false,
-       data: history.map(h => formatDateTime(h.timestamp).split(' ')[1] || ''), 
+       data: realtimeHistory.map(h => formatDateTime(h.timestamp).split(' ')[1] || ''), 
        axisLabel: { show: false },
        axisLine: { show: false },
        axisTick: { show: false },
@@ -117,7 +144,7 @@ function MachineDetailContent() {
       { 
         name: 'OEE', 
         type: 'line', 
-        data: history.map(h => h.oee), 
+        data: realtimeHistory.map(h => h.oee), 
         itemStyle: { color: '#17a2b8' }, 
         smooth: false, 
         symbol: 'none', 
@@ -132,6 +159,33 @@ function MachineDetailContent() {
                 ]
             }
         }
+      },
+      {
+        name: selectedLanguage === 'en' ? 'Availability' : 'Khả dụng',
+        type: 'line',
+        data: realtimeHistory.map((h) => h.availability),
+        smooth: true,
+        symbol: 'none',
+        lineStyle: { width: 1.4, color: '#22c55e' },
+        itemStyle: { color: '#22c55e' },
+      },
+      {
+        name: selectedLanguage === 'en' ? 'Performance' : 'Hiệu suất',
+        type: 'line',
+        data: realtimeHistory.map((h) => h.performance),
+        smooth: true,
+        symbol: 'none',
+        lineStyle: { width: 1.4, color: '#60a5fa' },
+        itemStyle: { color: '#60a5fa' },
+      },
+      {
+        name: selectedLanguage === 'en' ? 'Quality' : 'Chất lượng',
+        type: 'line',
+        data: realtimeHistory.map((h) => h.quality),
+        smooth: true,
+        symbol: 'none',
+        lineStyle: { width: 1.4, color: '#facc15' },
+        itemStyle: { color: '#facc15' },
       }
     ]
   };
@@ -142,7 +196,7 @@ function MachineDetailContent() {
       xAxis: { 
          type: 'category', 
          boundaryGap: false,
-         data: history.map(h => formatDateTime(h.timestamp).split(' ')[1] || ''), 
+         data: metricHistory.map(h => formatDateTime(h.timestamp).split(' ')[1] || ''), 
          axisLabel: { show: false },
          axisLine: { show: false },
          axisTick: { show: false },
@@ -160,7 +214,7 @@ function MachineDetailContent() {
         { 
            name: name, 
            type: 'line', 
-           data: history.map(h => h[metricKey as keyof typeof h] || 0), 
+           data: metricHistory.map(h => h[metricKey as keyof typeof h] || 0), 
            itemStyle: { color: color }, 
            smooth: false, 
            symbol: 'none', 
@@ -198,13 +252,6 @@ function MachineDetailContent() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* Title */}
-      <div className="flex items-center gap-3 mb-6">
-        <Settings size={32} className="text-industrial-border" />
-        <h1 className="text-2xl font-bold text-industrial-text">
-          {messages.common.machines} / {selectedMachine.name}
-        </h1>
-      </div>
 
       {/* Machine Selector */}
       <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
@@ -245,6 +292,46 @@ function MachineDetailContent() {
       </div>
 
       {/* Selected Machine Detail */}
+      <div className="card-industrial p-4">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <p className="text-xs uppercase tracking-wider text-industrial-text-secondary">{selectedMachine.code}</p>
+            <h2 className="text-xl font-bold text-industrial-text">{selectedMachine.name}</h2>
+            <div className="flex gap-1 mt-2">
+              <span className="data-layer-badge raw">{selectedLanguage === 'en' ? 'raw telemetry' : 'dữ liệu thô'}</span>
+              <span className="data-layer-badge computed">{selectedLanguage === 'en' ? 'computed kpi' : 'chỉ số tính toán'}</span>
+              <span className="data-layer-badge predicted">{selectedLanguage === 'en' ? 'prediction' : 'dự báo'}</span>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-3 w-full md:w-auto">
+            <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg px-3 py-2">
+              <p className="text-[10px] uppercase text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Status' : 'Trạng thái'}</p>
+              <p className={`text-sm font-semibold ${selectedMachine.status === 'FAULT' ? 'text-industrial-error' : selectedMachine.status === 'RUN' ? 'text-industrial-success' : 'text-industrial-info'}`}>{getStatusLabel(selectedMachine.status)}</p>
+            </div>
+            <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg px-3 py-2">
+              <p className="text-[10px] uppercase text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Mode' : 'Chế độ'}</p>
+              <p className="text-sm font-semibold text-industrial-text">{selectedMachine.mode}</p>
+            </div>
+            <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg px-3 py-2">
+              <p className="text-[10px] uppercase text-industrial-text-secondary">OEE</p>
+              <p className="text-sm font-semibold text-industrial-border">{Math.round(selectedMachine.oee)}%</p>
+            </div>
+            <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg px-3 py-2">
+              <p className="text-[10px] uppercase text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Power' : 'Công suất'}</p>
+              <p className="text-sm font-semibold text-industrial-success">{formatNumber(selectedMachine.powerKw, 1)} kW</p>
+            </div>
+            <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg px-3 py-2">
+              <p className="text-[10px] uppercase text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Health' : 'Sức khỏe'}</p>
+              <p className="text-sm font-semibold text-industrial-text">{selectedMachine.machineHealth}%</p>
+            </div>
+            <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg px-3 py-2">
+              <p className="text-[10px] uppercase text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Alarms' : 'Cảnh báo'}</p>
+              <p className={`text-sm font-semibold ${selectedMachine.activeAlarms > 0 ? 'text-industrial-error' : 'text-industrial-success'}`}>{selectedMachine.activeAlarms}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Main Info */}
         <div className="lg:col-span-2 space-y-4">
@@ -289,7 +376,7 @@ function MachineDetailContent() {
                             ? '#22c55e'
                             : selectedMachine.status === 'FAULT'
                             ? '#ef4444'
-                            : '#facc15',
+                            : '#60a5fa',
                       }}
                     ></div>
                     <p className="text-sm font-semibold text-industrial-text">
@@ -300,8 +387,79 @@ function MachineDetailContent() {
                     </p>
                   </div>
                 </div>
+
+                <div className="pt-2 border-t border-industrial-border/20">
+                  <p className="metric-label mb-2">{selectedLanguage === 'en' ? 'Data Layers' : 'Lớp dữ liệu'}</p>
+                  <div className="flex gap-1">
+                    <span className="data-layer-badge raw">{selectedLanguage === 'en' ? 'raw telemetry' : 'dữ liệu thô'}</span>
+                    <span className="data-layer-badge computed">{selectedLanguage === 'en' ? 'computed kpi' : 'chỉ số tính toán'}</span>
+                    <span className="data-layer-badge predicted">{selectedLanguage === 'en' ? 'prediction' : 'dự báo'}</span>
+                  </div>
+                </div>
+
+                <div>
+                  <p className="metric-label mb-2">{selectedLanguage === 'en' ? 'Machine Category' : 'Nhóm máy'}</p>
+                  <span className="px-3 py-1 rounded-full text-xs font-semibold bg-industrial-border/10 border border-industrial-border/30 text-industrial-border uppercase tracking-wider">
+                    {selectedMachine.category}
+                  </span>
+                </div>
               </div>
             </div>
+          </div>
+
+          <div className="card-industrial p-6">
+            <h3 className="panel-title mb-4">{selectedLanguage === 'en' ? 'Type-Aware Operation Panels' : 'Bảng vận hành theo loại máy'}</h3>
+
+            {selectedMachine.category === 'robot_only' && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg p-4">
+                  <p className="text-xs uppercase text-industrial-text-secondary mb-2">{selectedLanguage === 'en' ? 'Robot Zone' : 'Khu vực robot'}</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Program' : 'Chương trình'}: {selectedMachine.rawTelemetry?.programName || selectedMachine.currentProgram}</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Mode' : 'Chế độ'}: {selectedMachine.rawTelemetry?.mode || selectedMachine.mode}</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Servo load' : 'Tải servo'}: {formatNumber(selectedMachine.rawTelemetry?.servoLoadPct ?? selectedMachine.servoLoadPct ?? 0, 0)}%</p>
+                </div>
+                <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg p-4">
+                  <p className="text-xs uppercase text-industrial-text-secondary mb-2">{selectedLanguage === 'en' ? 'Cell Handshake' : 'Đồng bộ cell'}</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Ready/Busy' : 'Sẵn sàng/Bận'}: {selectedMachine.status === 'RUN' ? 'READY' : 'WAIT'}</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Safety interlock' : 'Liên động an toàn'}: {selectedMachine.status === 'FAULT' ? 'TRIPPED' : 'OK'}</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Energy' : 'Năng lượng'}: {formatNumber(selectedMachine.rawTelemetry?.powerKw ?? selectedMachine.powerKw, 1)} kW</p>
+                </div>
+              </div>
+            )}
+
+            {selectedMachine.category === 'cnc_machine' && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg p-4">
+                  <p className="text-xs uppercase text-industrial-text-secondary mb-2">{selectedLanguage === 'en' ? 'Machining Process' : 'Quá trình gia công'}</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Spindle' : 'Trục chính'}: {selectedMachine.rawTelemetry?.spindleRpm ?? selectedMachine.spindleSpeedRpm ?? 0} rpm</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Feed' : 'Lượng chạy dao'}: {selectedMachine.rawTelemetry?.feedRateMmMin ?? selectedMachine.feedRateMmMin ?? 0} mm/min</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Cycle' : 'Chu kỳ'}: {selectedMachine.cycleTimeSec}s</p>
+                </div>
+                <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg p-4">
+                  <p className="text-xs uppercase text-industrial-text-secondary mb-2">{selectedLanguage === 'en' ? 'Condition Monitoring' : 'Giám sát tình trạng'}</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Temperature' : 'Nhiệt độ'}: {formatNumber(selectedMachine.rawTelemetry?.temperatureC ?? selectedMachine.temperatureC ?? 0, 1)}C</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Vibration' : 'Độ rung'}: {formatNumber(selectedMachine.rawTelemetry?.vibrationPct ?? selectedMachine.vibrationPct ?? 0, 1)}%</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Tool life' : 'Tuổi thọ dao'}: {formatNumber(selectedMachine.predictions?.remainingToolLifePct ?? selectedMachine.toolLifeRemainingPct ?? 0, 0)}%</p>
+                </div>
+              </div>
+            )}
+
+            {selectedMachine.category === 'robot_cnc_cell' && (
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg p-4">
+                  <p className="text-xs uppercase text-industrial-text-secondary mb-2">{selectedLanguage === 'en' ? 'Robot Zone' : 'Khu vực robot'}</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Program' : 'Chương trình'}: {selectedMachine.rawTelemetry?.programName || selectedMachine.currentProgram}</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Servo load' : 'Tải servo'}: {formatNumber(selectedMachine.rawTelemetry?.servoLoadPct ?? selectedMachine.servoLoadPct ?? 0, 0)}%</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Cell state' : 'Trạng thái cell'}: {selectedMachine.rawTelemetry?.state || selectedMachine.status}</p>
+                </div>
+                <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg p-4">
+                  <p className="text-xs uppercase text-industrial-text-secondary mb-2">{selectedLanguage === 'en' ? 'Machining Zone' : 'Khu vực gia công'}</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Spindle' : 'Trục chính'}: {selectedMachine.rawTelemetry?.spindleRpm ?? selectedMachine.spindleSpeedRpm ?? 0} rpm</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Feed' : 'Lượng chạy dao'}: {selectedMachine.rawTelemetry?.feedRateMmMin ?? selectedMachine.feedRateMmMin ?? 0} mm/min</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Quality output' : 'Sản lượng đạt'}: {selectedMachine.goodCount}/{selectedMachine.partCount}</p>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Performance Metrics */}
@@ -462,7 +620,7 @@ function MachineDetailContent() {
                 </div>
                 <div className="pt-2">
                   <p className="text-xs text-industrial-text-secondary bg-industrial-bg px-3 py-2 rounded-lg border border-industrial-border/5 inline-block">
-                    <strong className="text-industrial-border">Formula:</strong> OEE = A × P × Q
+                    <strong className="text-industrial-border">{selectedLanguage === 'en' ? 'Formula' : 'Công thức'}:</strong> OEE = A × P × Q
                   </p>
                 </div>
               </div>
@@ -489,17 +647,26 @@ function MachineDetailContent() {
                       <span className="text-xs text-industrial-error mt-1">{messages.machine.ngParts || 'NG Parts'}</span>
                   </div>
                 </div>
+                <div className="mt-4 bg-industrial-bg/40 border border-industrial-border/10 rounded-lg p-3">
+                  <div className="flex justify-between text-xs mb-2">
+                    <span className="text-industrial-success">{selectedLanguage === 'en' ? 'Good Ratio' : 'Tỷ lệ đạt'}: {formatNumber(goodRatio, 1)}%</span>
+                    <span className="text-industrial-error">{selectedLanguage === 'en' ? 'NG Ratio' : 'Tỷ lệ lỗi'}: {formatNumber(ngRatio, 1)}%</span>
+                  </div>
+                  <div className="h-2 rounded-full bg-industrial-card overflow-hidden border border-industrial-border/10">
+                    <div className="h-full bg-industrial-success" style={{ width: `${Math.min(100, goodRatio)}%` }}></div>
+                  </div>
+                </div>
               </div>
             </div>
 
             {/* Real-time Validation Chart */}
             <div className="h-64 mt-2 border-t border-industrial-border/20 pt-6">
-              <div className="flex justify-between items-center mb-2">
+              <div className="flex justify-between items-center mb-3">
                  <h4 className="text-xs uppercase tracking-wider text-industrial-text-secondary flex items-center gap-2">
                    <span className="w-2 h-2 rounded-full bg-industrial-error animate-pulse"></span>
-                   {selectedLanguage === 'en' ? 'Real-time OEE Analytics' : 'Biểu đồ OEE thời gian thực'}
+                   {messages.machineDetail.realtimeOeeAnalytics}
                  </h4>
-                 <h4 className="text-xs text-industrial-text-secondary">60 seconds</h4>
+                 <TimeRangeSelector value={timeRange} onChange={setTimeRange} showLabel={false} />
               </div>
               <div className="bg-[#111] p-1 rounded-lg h-full border border-[#333]">
                   <ReactECharts option={oeeChartOptions} style={{height: '100%', width: '100%'}} />
@@ -608,7 +775,7 @@ function MachineDetailContent() {
           {/* Recent Events */}
           <div className="card-industrial p-6">
             <h3 className="text-industrial-border font-semibold mb-4 text-sm">
-              {messages.machineDetail.eventTimeline || 'Recent Events'}
+              {messages.machineDetail.eventTimeline || (selectedLanguage === 'en' ? 'Recent Events' : 'Sự kiện gần đây')}
             </h3>
             <div className="space-y-3">
               {machineEvents.length > 0 ? (
@@ -650,7 +817,7 @@ function MachineDetailContent() {
             {/* Modal Header */}
             <div className="flex justify-between items-center p-4 border-b border-gray-800">
               <h2 className="text-lg font-semibold text-gray-200 flex items-center gap-2">
-                 <Activity size={18} /> Performance
+                 <Activity size={18} /> {selectedLanguage === 'en' ? 'Performance' : 'Hiệu suất'}
               </h2>
               <button className="text-gray-400 hover:text-white" onClick={() => setSelectedMetric(null)}>
                  <X size={24} />
@@ -671,7 +838,7 @@ function MachineDetailContent() {
                             <span className="text-gray-300">{m.label}</span>
                          </div>
                          <div className="flex justify-between items-end">
-                            <span className="text-xs text-gray-500">Utilization</span>
+                            <span className="text-xs text-gray-500">{selectedLanguage === 'en' ? 'Utilization' : 'Mức sử dụng'}</span>
                             <span className="text-lg font-semibold text-gray-100">{typeof m.value === 'number' ? formatNumber(m.value, 1) : m.value} {m.unit}</span>
                          </div>
                       </div>
@@ -684,6 +851,10 @@ function MachineDetailContent() {
                      <h3 className="text-2xl font-light text-gray-100">{activeMetricObj.label}</h3>
                      <span className="text-sm font-medium text-gray-300">{typeof activeMetricObj.value === 'number' ? formatNumber(activeMetricObj.value, 1) : activeMetricObj.value} {activeMetricObj.unit}</span>
                   </div>
+
+                  <div className="mb-4 flex justify-end">
+                     <TimeRangeSelector value={metricRange} onChange={setMetricRange} showLabel={false} />
+                  </div>
                   
                   <div className="flex-1 min-h-0 border border-[#333] relative">
                      <ReactECharts option={getMetricChartOptions(activeMetricObj.key, activeMetricObj.color, activeMetricObj.label)} style={{height: '100%', width: '100%'}} />
@@ -691,17 +862,17 @@ function MachineDetailContent() {
                   
                   <div className="mt-4 grid grid-cols-4 gap-4 text-sm text-gray-400">
                      <div className="flex flex-col">
-                        <span>60 seconds</span>
-                        <span className="text-xs mt-1">Utilization</span>
+                        <span>{selectedLanguage === 'en' ? 'Current Window' : 'Khung thời gian hiện tại'}</span>
+                        <span className="text-xs mt-1">{selectedLanguage === 'en' ? 'Utilization' : 'Mức sử dụng'}</span>
                         <span className="text-xl text-gray-200">{typeof activeMetricObj.value === 'number' ? formatNumber(activeMetricObj.value, 1) : activeMetricObj.value} {activeMetricObj.unit}</span>
                      </div>
                      <div className="flex flex-col">
-                        <span>Max Recorded</span>
-                        <span className="text-xl text-gray-200">{formatNumber(Math.max(...history.map(h => Number(h[activeMetricObj.key]) || 0)), 1)}</span>
+                        <span>{selectedLanguage === 'en' ? 'Max Recorded' : 'Mức lớn nhất'}</span>
+                        <span className="text-xl text-gray-200">{formatNumber(Math.max(...metricHistory.map(h => Number(h[activeMetricObj.key]) || 0)), 1)}</span>
                      </div>
                      <div className="flex flex-col">
-                        <span>Average</span>
-                        <span className="text-xl text-gray-200">{formatNumber(history.reduce((a, b) => a + (Number(b[activeMetricObj.key]) || 0), 0) / (history.length || 1), 1)}</span>
+                        <span>{selectedLanguage === 'en' ? 'Average' : 'Trung bình'}</span>
+                        <span className="text-xl text-gray-200">{formatNumber(metricHistory.reduce((a, b) => a + (Number(b[activeMetricObj.key]) || 0), 0) / (metricHistory.length || 1), 1)}</span>
                      </div>
                   </div>
                </div>
@@ -748,7 +919,7 @@ function MachineDetailContent() {
                   }} 
                   className="px-4 py-2 rounded bg-industrial-success/20 border border-industrial-success/50 text-industrial-success hover:bg-industrial-success/40 transition-colors font-medium"
                >
-                  {selectedLanguage === 'en' ? 'Acknowledge All' : 'Xác nhận toàn bộ lỗi'}
+                  {selectedLanguage === 'en' ? 'Acknowledge All' : 'Xác nhận toàn bộ'}
                </button>
             </div>
           </div>

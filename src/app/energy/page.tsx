@@ -6,18 +6,45 @@ import { Zap, Activity } from 'lucide-react';
 import ReactECharts from 'echarts-for-react';
 import enMessages from '@/locales/en.json';
 import viMessages from '@/locales/vi.json';
+import { TimeRangeSelector, TimeRange } from '@/components/TimeRangeSelector';
+import { useState } from 'react';
+import { buildTimeAxisLabels, getTimeRangeConfig } from '@/lib/time-range-config';
 
 const EnergyPage = () => {
-  const { machines, selectedLanguage } = useMachineStore();
+  const { machines, selectedLanguage, selectedAreaFilter, selectedStatusFilter } = useMachineStore();
   const messages = selectedLanguage === 'en' ? enMessages : viMessages;
+  const [distributionRange, setDistributionRange] = useState<TimeRange>('1h');
+  const [trendRange, setTrendRange] = useState<TimeRange>('1h');
 
-  const totalPowerNow = machines.reduce((sum, m) => sum + m.powerKw, 0);
-  const peakPower = Math.max(...machines.map((m) => m.powerKw)) * 1.2;
-  const totalEnergyToday = machines.reduce((sum, m) => sum + m.energyTodayKwh, 0);
-  const totalEnergyMonth = machines.reduce((sum, m) => sum + m.energyMonthKwh, 0);
+  const filteredMachines = machines.filter((machine) => {
+    const matchArea = selectedAreaFilter === 'all' || machine.area === selectedAreaFilter;
+    const matchStatus = selectedStatusFilter === 'all' || machine.status === selectedStatusFilter;
+    return matchArea && matchStatus;
+  });
+
+  const displayMachines = filteredMachines.length > 0 ? filteredMachines : machines;
+
+  const totalPowerNow = displayMachines.reduce((sum, m) => sum + m.powerKw, 0);
+  const peakPower = Math.max(...displayMachines.map((m) => m.powerKw)) * 1.2;
+  const totalEnergyToday = displayMachines.reduce((sum, m) => sum + m.energyTodayKwh, 0);
+  const totalEnergyMonth = displayMachines.reduce((sum, m) => sum + m.energyMonthKwh, 0);
   const costPerKwh = 0.12;
   const costToday = totalEnergyToday * costPerKwh;
   const costMonth = totalEnergyMonth * costPerKwh;
+  const localeKey = selectedLanguage === 'en' ? 'en' : 'vi';
+  const distributionConfig = getTimeRangeConfig(distributionRange);
+  const trendConfig = getTimeRangeConfig(trendRange);
+  const distributionUnit = distributionConfig.energyUnit;
+  const trendUnit = trendConfig.energyUnit;
+  const trendAxisLabels = buildTimeAxisLabels(trendRange, localeKey);
+
+  const normalizeEnergyValue = (powerKw: number, range: TimeRange) => {
+    const config = getTimeRangeConfig(range);
+    if (config.energyUnit === 'kW') {
+      return powerKw;
+    }
+    return (powerKw * config.totalMinutes) / 60;
+  };
 
   const pieChartOption = {
     tooltip: { trigger: 'item' },
@@ -30,7 +57,7 @@ const EnergyPage = () => {
     },
     series: [
       {
-        name: selectedLanguage === 'en' ? 'Power kW' : 'Cng sut kW',
+        name: selectedLanguage === 'en' ? `Power (${distributionUnit})` : `Công suất (${distributionUnit})`,
         type: 'pie',
         radius: ['45%', '70%'],
         center: ['50%', '42%'],
@@ -41,20 +68,59 @@ const EnergyPage = () => {
           borderWidth: 2
         },
         label: { show: false },
-        data: machines.map(m => ({ value: m.powerKw, name: m.code }))
+        data: displayMachines.map((m) => ({ value: normalizeEnergyValue(m.powerKw, distributionRange), name: m.code }))
       }
     ]
   };
 
+  const energyTrendOption = {
+    tooltip: { trigger: 'axis', backgroundColor: '#111', borderColor: '#17a2b8', textStyle: { color: '#fff' } },
+    grid: { left: '3%', right: '3%', top: '10%', bottom: '8%', containLabel: true },
+    xAxis: {
+      type: 'category',
+      data: trendAxisLabels,
+      axisLabel: { color: '#8fb3d9' },
+      axisLine: { lineStyle: { color: '#28445f' } },
+    },
+    yAxis: {
+      type: 'value',
+      axisLabel: { color: '#8fb3d9', formatter: `{value} ${trendUnit}` },
+      splitLine: { lineStyle: { color: '#1a2a3a' } },
+    },
+    series: [
+      {
+        type: 'line',
+        smooth: true,
+        symbol: 'none',
+        lineStyle: { color: '#17a2b8', width: 2 },
+        areaStyle: {
+          color: {
+            type: 'linear',
+            x: 0,
+            y: 0,
+            x2: 0,
+            y2: 1,
+            colorStops: [
+              { offset: 0, color: 'rgba(23,162,184,0.35)' },
+              { offset: 1, color: 'rgba(23,162,184,0.05)' },
+            ],
+          },
+        },
+        data: Array.from({ length: trendConfig.pointCount }).map((_, idx) => {
+          const base = normalizeEnergyValue(totalPowerNow, trendRange);
+          return Math.max(1, base * (0.8 + Math.sin(idx / 2) * 0.15 + Math.random() * 0.08));
+        }),
+      },
+    ],
+  };
+
+  const areaConsumption = displayMachines.reduce((acc: Record<string, number>, machine) => {
+    acc[machine.area] = (acc[machine.area] || 0) + machine.energyTodayKwh;
+    return acc;
+  }, {});
+
   return (
     <div className="space-y-6 animate-fade-in">
-      <div className="flex items-center gap-3 mb-6">
-        <Zap size={32} className="text-industrial-border" />
-        <h1 className="text-2xl font-bold text-industrial-text">
-          {messages.common.energy}
-        </h1>
-      </div>
-
       {/* Power KPIs */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="card-industrial p-6">
@@ -111,11 +177,46 @@ const EnergyPage = () => {
         </div>
 
         <div className="card-industrial p-6 flex flex-col">
-           <h3 className="text-industrial-border font-semibold mb-2">
-            {messages.energy.powerDistributionByMachine}
-          </h3>
+          <div className="flex items-center justify-between gap-3 mb-2">
+            <h3 className="panel-title">
+              {messages.energy.powerDistributionByMachine}
+            </h3>
+            <TimeRangeSelector value={distributionRange} onChange={setDistributionRange} showLabel={false} />
+          </div>
           <div className="flex-1 min-h-[280px] mt-2 relative">
             <ReactECharts option={pieChartOption} style={{ height: '100%', width: '100%', position: 'absolute', top: 0, left: 0 }} />
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="card-industrial p-6">
+          <div className="flex items-center justify-between gap-3 mb-4">
+            <h3 className="panel-title">{messages.energy.powerTrendChart}</h3>
+            <TimeRangeSelector value={trendRange} onChange={setTrendRange} showLabel={false} />
+          </div>
+          <div className="h-64">
+            <ReactECharts option={energyTrendOption} style={{ height: '100%', width: '100%' }} />
+          </div>
+        </div>
+
+        <div className="card-industrial p-6">
+          <h3 className="panel-title mb-4">{messages.energy.energyByArea}</h3>
+          <div className="space-y-3">
+            {Object.entries(areaConsumption).map(([area, energy]) => {
+              const pct = totalEnergyToday > 0 ? (energy / totalEnergyToday) * 100 : 0;
+              return (
+                <div key={area} className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-sm font-semibold text-industrial-text">{area}</p>
+                    <p className="text-sm text-industrial-border font-bold">{formatNumber(energy, 1)} kWh</p>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-industrial-card overflow-hidden">
+                    <div className="h-full bg-industrial-border" style={{ width: `${pct}%` }}></div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -123,7 +224,7 @@ const EnergyPage = () => {
       {/* Detail list */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="card-industrial p-6">
-          <h3 className="text-industrial-border font-semibold mb-4 flex items-center gap-2">
+          <h3 className="panel-title mb-4">
             <Activity size={18} />
             {messages.energy.powerQuality}
           </h3>
@@ -160,11 +261,11 @@ const EnergyPage = () => {
 
         {/* Power Distribution list */}
         <div className="card-industrial p-6">
-          <h3 className="text-industrial-border font-semibold mb-4">
+          <h3 className="panel-title mb-4">
             {messages.energy.powerDistributionByMachine}
           </h3>
           <div className="space-y-4 max-h-64 overflow-y-auto pr-2">
-            {machines.map((machine) => {
+            {displayMachines.map((machine) => {
               const percentage = totalPowerNow > 0 ? (machine.powerKw / totalPowerNow) * 100 : 0;
               return (
                 <div key={machine.id} className="bg-industrial-darker p-3 rounded-lg border border-industrial-border/10">
@@ -182,7 +283,7 @@ const EnergyPage = () => {
                       <p className="text-sm font-bold text-industrial-border">
                         {formatNumber(machine.powerKw, 1)} {messages.energy.powerKw}
                       </p>
-                      <p className="text-xs text- промышлен-text-secondary">{formatNumber(percentage, 0)}%</p>
+                      <p className="text-xs text-industrial-text-secondary">{formatNumber(percentage, 0)}%</p>
                     </div>
                   </div>
                   <div className="h-1.5 rounded-full bg-industrial-card">
@@ -195,7 +296,7 @@ const EnergyPage = () => {
                             ? '#22c55e'
                             : machine.status === 'FAULT'
                             ? '#ef4444'
-                            : '#facc15',
+                            : '#60a5fa',
                       }}
                     ></div>
                   </div>

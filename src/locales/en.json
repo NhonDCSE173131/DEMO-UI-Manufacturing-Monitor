@@ -29,7 +29,64 @@
     "search": "Search",
     "filter": "Filter",
     "sort": "Sort",
-    "language": "Language"
+    "language": "Language",
+    "appTagline": "Manufacturing Command",
+    "systemStatus": "System Status",
+    "online": "Online"
+  },
+  "header": {
+    "globalFilters": "Global Filters",
+    "allShifts": "All shifts",
+    "shiftA": "Shift A",
+    "shiftB": "Shift B",
+    "shiftC": "Shift C",
+    "allAreas": "All areas",
+    "allStatus": "All status",
+    "openAlarms": "Open Alarms",
+    "maintenanceQueue": "Maintenance Queue",
+    "role": "Role",
+    "routes": {
+      "dashboard": {
+        "title": "Factory Command Center",
+        "subtitle": "Realtime overview of machines, risk, and energy",
+        "breadcrumb": "Dashboard"
+      },
+      "machines": {
+        "title": "Machine Monitoring",
+        "subtitle": "Live machine state, telemetry, and health",
+        "breadcrumb": "Machines"
+      },
+      "energy": {
+        "title": "Energy Center",
+        "subtitle": "Power usage, distribution, and cost insights",
+        "breadcrumb": "Energy"
+      },
+      "oee": {
+        "title": "OEE Analytics",
+        "subtitle": "Availability, performance, and quality tracking",
+        "breadcrumb": "OEE"
+      },
+      "tools": {
+        "title": "Tool Lifecycle",
+        "subtitle": "Observed wear and replacement planning",
+        "breadcrumb": "Tools"
+      },
+      "maintenance": {
+        "title": "Maintenance Center",
+        "subtitle": "Health risk, schedule, and technician actions",
+        "breadcrumb": "Maintenance"
+      },
+      "alarms": {
+        "title": "Alarm & Event Center",
+        "subtitle": "Severity, duration, and root-cause tracking",
+        "breadcrumb": "Alarms"
+      },
+      "settings": {
+        "title": "System Settings",
+        "subtitle": "Global preferences and platform configuration",
+        "breadcrumb": "Settings"
+      }
+    }
   },
   "machine": {
     "status": "Status",
@@ -86,7 +143,23 @@
     "oeeTrend": "OEE by Machine",
     "powerDistribution": "Power Distribution",
     "downtimeCause": "Downtime Causes (Pareto)",
-    "downtimeHeatmap": "Downtime Heatmap"
+    "downtimeHeatmap": "Downtime Heatmap",
+    "noMachineMatchFilter": "No machine matches current filters. Showing full factory view.",
+    "shift": "Shift",
+    "day": "Day",
+    "week": "Week",
+    "exportSnapshot": "Export Snapshot",
+    "good": "Good",
+    "ng": "NG",
+    "viewAllEvents": "View all events →",
+    "health": "Health",
+    "allMachinesHealthy": "All machines healthy",
+    "viewMaintenance": "View maintenance →",
+    "plantTopology": "Plant Topology Overview",
+    "powerShort": "Power",
+    "partsShort": "Parts",
+    "healthShort": "Health",
+    "alarmsShort": "Alarms"
   },
   "machineDetail": {
     "machineInfo": "Machine Information",
@@ -121,7 +194,15 @@
     "severity": "Severity",
     "message": "Message",
     "duration": "Duration",
-    "cause": "Cause"
+    "cause": "Cause",
+    "realtimeOeeAnalytics": "Real-time OEE Analytics",
+    "targetVsActual": "Target vs Actual",
+    "timeRangeLabel": "Time Range",
+    "timeRange60s": "60 seconds",
+    "timeRange1h": "1 hour",
+    "timeRange1d": "1 day",
+    "timeRange1w": "1 week",
+    "timeRange1m": "1 month"
   },
   "energy": {
     "title": "Energy Monitoring",
@@ -211,9 +292,6 @@
     "urgent": "URGENT",
     "soon": "SOON",
     "confirmDone": "Confirm Maintenance Done",
-    "riskScore": "Risk Score",
-    "estimatedDowntime": "Est. Downtime",
-    "recommendedAction": "Recommended",
     "fullInspection": "Full inspection",
     "days": "days",
     "daysUnit": "days",
@@ -229,7 +307,6 @@
     "confirm": "Confirm",
     "anomalyScore": "Anomaly Score",
     "maintenanceDue": "Maintenance Due",
-    "fullInspection": "Full inspection",
     "hoursLabel": "hours"
   },
   "alarms": {

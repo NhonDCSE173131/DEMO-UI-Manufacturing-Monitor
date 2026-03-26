@@ -2,7 +2,7 @@
 
 import { useMachineStore } from '@/lib/store';
 import { formatNumber } from '@/lib/utils';
-import { Wrench, AlertTriangle, X, ShieldCheck } from 'lucide-react';
+import { Wrench, AlertTriangle, X, ShieldCheck, CalendarClock, Thermometer, Waves, Cpu } from 'lucide-react';
 import enMessages from '@/locales/en.json';
 import viMessages from '@/locales/vi.json';
 import { useState } from 'react';
@@ -16,28 +16,41 @@ const MaintenancePage = () => {
   const [maintenanceTime, setMaintenanceTime] = useState(new Date().toISOString().slice(0, 16));
   const [maintenanceNotes, setMaintenanceNotes] = useState('');
 
-  const riskMachines = machines.filter((m) => m.maintenanceDueDays <= 14).sort((a, b) => a.maintenanceDueDays - b.maintenanceDueDays);
+  const riskMachines = machines
+    .filter((m) => m.maintenanceDueDays <= 14 || (m.predictions?.maintenanceRisk ?? 'low') !== 'low')
+    .sort((a, b) => a.maintenanceDueDays - b.maintenanceDueDays);
+
+  const dueSoon = [...machines].sort((a, b) => a.maintenanceDueDays - b.maintenanceDueDays).slice(0, 6);
+
+  const getComponentBreakdown = (machine: (typeof machines)[number]) => {
+    const motor = Math.min(100, Math.round((machine.rawTelemetry?.servoLoadPct ?? 0) * 1.1));
+    const spindle = Math.min(100, Math.round((machine.rawTelemetry?.spindleRpm ?? machine.spindleSpeedRpm ?? 0) / 60));
+    const vibration = Math.min(100, Math.round(machine.rawTelemetry?.vibrationPct ?? machine.vibrationPct ?? 0));
+    const thermal = Math.min(100, Math.round((machine.rawTelemetry?.temperatureC ?? machine.temperatureC ?? 0) * 1.2));
+    const electrical = Math.min(100, Math.round((machine.rawTelemetry?.powerKw ?? machine.powerKw) * 3));
+    return [
+      { key: 'motor', label: 'Motor', risk: motor },
+      { key: 'spindle', label: 'Spindle', risk: spindle },
+      { key: 'vibration', label: 'Vibration', risk: vibration },
+      { key: 'thermal', label: 'Thermal', risk: thermal },
+      { key: 'electrical', label: 'Electrical', risk: electrical },
+    ];
+  };
 
   const getRiskLevel = (score: number) => {
-    if (score >= 80) return { label: messages.maintenance.critical, color: 'industrial-error', bg: 'bg-industrial-error/10' };
-    if (score >= 60) return { label: messages.maintenance.high, color: 'industrial-warning', bg: 'bg-industrial-warning/10' };
-    if (score >= 40) return { label: messages.maintenance.medium, color: 'industrial-info', bg: 'bg-industrial-info/10' };
-    return { label: messages.maintenance.low, color: 'industrial-success', bg: 'bg-industrial-success/10' };
+    if (score >= 80) return { label: messages.maintenance.critical, textClass: 'text-industrial-error', borderClass: 'border-industrial-error/30', bgClass: 'bg-industrial-error/10' };
+    if (score >= 60) return { label: messages.maintenance.high, textClass: 'text-industrial-warning', borderClass: 'border-industrial-warning/30', bgClass: 'bg-industrial-warning/10' };
+    if (score >= 40) return { label: messages.maintenance.medium, textClass: 'text-industrial-info', borderClass: 'border-industrial-info/30', bgClass: 'bg-industrial-info/10' };
+    return { label: messages.maintenance.low, textClass: 'text-industrial-success', borderClass: 'border-industrial-success/30', bgClass: 'bg-industrial-success/10' };
   };
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <div className="flex items-center gap-3 mb-6">
-        <Wrench size={32} className="text-industrial-border" />
-        <h1 className="text-2xl font-bold text-industrial-text">
-          {messages.common.maintenance}
-        </h1>
-      </div>
 
       {/* Maintenance Schedule Notice */}
       {riskMachines.length > 0 && (
         <div className="card-industrial p-6 border-industrial-warning/50 bg-industrial-warning/5">
-          <h3 className="text-industrial-warning font-semibold mb-4 flex items-center gap-2">
+          <h3 className="panel-title text-industrial-warning mb-4">
             <AlertTriangle size={18} />
             {messages.maintenance.maintenanceSchedule}
           </h3>
@@ -47,7 +60,7 @@ const MaintenancePage = () => {
                 key={machine.id}
                 className={`p-4 rounded-lg border ${
                   machine.maintenanceDueDays <= 7
-                    ? 'bg-industrial-error/10 border-industrial-error/30'
+                    ? 'bg-industrial-error/10 border-industrial-error/40 pulse-error'
                     : 'bg-industrial-warning/10 border-industrial-warning/30'
                 }`}
               >
@@ -64,10 +77,10 @@ const MaintenancePage = () => {
                     </div>
                   </div>
                   <span
-                    className={`text-sm font-bold bg-industrial-bg px-2 py-1 rounded ${
+                    className={`text-sm font-bold bg-industrial-bg px-2 py-1 rounded border ${
                       machine.maintenanceDueDays <= 7
-                        ? 'text-industrial-error'
-                        : 'text-industrial-warning'
+                        ? 'text-industrial-error border-industrial-error/30'
+                        : 'text-industrial-warning border-industrial-warning/30'
                     }`}
                   >
                     {machine.maintenanceDueDays <= 7 ? messages.maintenance.urgent : messages.maintenance.soon}
@@ -83,7 +96,7 @@ const MaintenancePage = () => {
                   </button>
                 </div>
 
-                <div className="grid grid-cols-3 gap-2 text-xs bg-industrial-darker p-2 rounded">
+                <div className="grid grid-cols-3 gap-2 text-xs bg-industrial-darker p-2 rounded border border-industrial-border/20">
                   <div>
                     <p className="text-industrial-text-secondary">{messages.maintenance.riskScore}</p>
                     <p className="font-semibold text-industrial-error">{100 - machine.machineHealth}%</p>
@@ -94,7 +107,7 @@ const MaintenancePage = () => {
                   </div>
                   <div>
                     <p className="text-industrial-text-secondary">{messages.maintenance.recommendedAction}</p>
-                    <p className="font-semibold">{messages.maintenance.fullInspection}</p>
+                    <p className="font-semibold">{machine.predictions?.recommendation || messages.maintenance.fullInspection}</p>
                   </div>
                 </div>
               </div>
@@ -103,10 +116,34 @@ const MaintenancePage = () => {
         </div>
       )}
 
+      <div className="card-industrial p-6">
+        <h3 className="panel-title mb-4">
+          <CalendarClock size={18} />
+          {selectedLanguage === 'en' ? 'Due-Soon Timeline' : 'Timeline sap den han'}
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+          {dueSoon.map((machine) => (
+            <div key={`timeline-${machine.id}`} className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg p-3">
+              <p className="text-sm font-semibold text-industrial-text">{machine.name}</p>
+              <p className="text-xs text-industrial-text-secondary mb-2">{machine.code}</p>
+              <div className="h-2 rounded-full bg-industrial-card border border-industrial-border/20 overflow-hidden mb-2">
+                <div
+                  className={`h-full ${machine.maintenanceDueDays <= 7 ? 'bg-industrial-error' : machine.maintenanceDueDays <= 14 ? 'bg-industrial-warning' : 'bg-industrial-success'}`}
+                  style={{ width: `${Math.max(8, 100 - machine.maintenanceDueDays)}%` }}
+                ></div>
+              </div>
+              <p className={`text-xs font-medium ${machine.maintenanceDueDays <= 7 ? 'text-industrial-error' : machine.maintenanceDueDays <= 14 ? 'text-industrial-warning' : 'text-industrial-success'}`}>
+                {machine.maintenanceDueDays} {selectedLanguage === 'en' ? 'days remaining' : 'ngay con lai'}
+              </p>
+            </div>
+          ))}
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Machine Health Ranking */}
         <div className="card-industrial p-6">
-          <h3 className="text-industrial-border font-semibold mb-6 flex items-center gap-2">
+          <h3 className="panel-title mb-6">
             <ShieldCheck size={18} />
             {messages.maintenance.machineHealthRanking}
           </h3>
@@ -131,8 +168,8 @@ const MaintenancePage = () => {
                           </div>
                         </div>
                       </div>
-                      <div className={`px-3 py-1 rounded text-sm font-semibold border text-${risk.color} border-${risk.color}/30 bg-${risk.color}/10`}>
-                        {machine.machineHealth}%
+                      <div className={`px-3 py-1 rounded text-sm font-semibold border ${risk.textClass} ${risk.borderClass} ${risk.bgClass}`}>
+                        {machine.machineHealth}% · {risk.label}
                       </div>
                     </div>
 
@@ -167,7 +204,7 @@ const MaintenancePage = () => {
                       <div>
                         <p className="text-industrial-text-secondary">{messages.machine.status}</p>
                         <p className="font-semibold text-industrial-text flex items-center gap-1">
-                          <span className="w-2 h-2 rounded-full" style={{backgroundColor: machine.status === 'RUN' ? '#22c55e' : machine.status === 'FAULT' ? '#ef4444' : '#facc15'}}></span>
+                          <span className="w-2 h-2 rounded-full" style={{backgroundColor: machine.status === 'RUN' ? '#22c55e' : machine.status === 'FAULT' ? '#ef4444' : '#60a5fa'}}></span>
                           {machine.status}
                         </p>
                       </div>
@@ -180,7 +217,7 @@ const MaintenancePage = () => {
 
         {/* Risk Factors */}
         <div className="card-industrial p-6">
-          <h3 className="text-industrial-border font-semibold mb-6 flex items-center gap-2">
+          <h3 className="panel-title mb-6">
             <AlertTriangle size={18} />
             {messages.maintenance.riskAssessment}
           </h3>
@@ -213,6 +250,23 @@ const MaintenancePage = () => {
                         {factor.text}
                       </span>
                     ))}
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-5 gap-2 mt-3">
+                    {getComponentBreakdown(machine).map((component) => (
+                      <div key={`${machine.id}-${component.key}`} className="bg-industrial-bg/40 border border-industrial-border/10 rounded p-2">
+                        <p className="text-[10px] uppercase text-industrial-text-secondary">{component.label}</p>
+                        <p className={`text-sm font-semibold ${component.risk >= 75 ? 'text-industrial-error' : component.risk >= 55 ? 'text-industrial-warning' : 'text-industrial-success'}`}>
+                          {component.risk}%
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="mt-3 p-3 rounded-lg bg-industrial-dark/40 border border-industrial-border/20 text-xs text-industrial-text-secondary">
+                    <p className="font-semibold text-industrial-text mb-1">{selectedLanguage === 'en' ? 'Observed vs Recommended' : 'Quan sát và khuyến nghị'}</p>
+                    <p>{selectedLanguage === 'en' ? 'Observed:' : 'Quan sát:'} {formatNumber(machine.rawTelemetry?.temperatureC ?? machine.temperatureC ?? 0, 1)}C · {formatNumber(machine.rawTelemetry?.vibrationPct ?? machine.vibrationPct ?? 0, 0)}% vibration · {formatNumber(machine.rawTelemetry?.powerKw ?? machine.powerKw, 1)}kW</p>
+                    <p>{selectedLanguage === 'en' ? 'Recommended:' : 'Khuyến nghị:'} {machine.predictions?.recommendation || messages.maintenance.fullInspection}</p>
                   </div>
                 </div>
               );

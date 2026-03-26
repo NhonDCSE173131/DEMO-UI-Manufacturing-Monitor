@@ -1,24 +1,34 @@
 'use client';
 
 import { useMachineStore } from '@/lib/store';
-import { Settings as SettingsIcon } from 'lucide-react';
+import { Settings as SettingsIcon, SlidersHorizontal, Clock3, BellRing } from 'lucide-react';
 import enMessages from '@/locales/en.json';
 import viMessages from '@/locales/vi.json';
 
 const SettingsPage = () => {
-  const { selectedLanguage, setLanguage } = useMachineStore();
+  const {
+    selectedLanguage,
+    setLanguage,
+    selectedShift,
+    setShift,
+    selectedStatusFilter,
+    setStatusFilter,
+    selectedAreaFilter,
+    setAreaFilter,
+    userRole,
+    setUserRole,
+    machines,
+  } = useMachineStore();
   const messages = selectedLanguage === 'en' ? enMessages : viMessages;
+  const areaOptions = ['all', ...new Set(machines.map((machine) => machine.area))];
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <div className="flex items-center gap-3 mb-6">
-        <SettingsIcon size={32} className="text-industrial-border" />
-        <h1 className="text-2xl font-bold text-industrial-text">
-          {messages.common.settings}
-        </h1>
-      </div>
-
       <div className="card-industrial p-6">
+        <h3 className="panel-title mb-5">
+          <SettingsIcon size={18} />
+          {selectedLanguage === 'en' ? 'System Preferences' : 'Tùy chọn hệ thống'}
+        </h3>
         {/* Language Settings */}
         <div className="space-y-6">
           <div>
@@ -50,11 +60,106 @@ const SettingsPage = () => {
           </div>
 
           <div className="border-t border-industrial-border/20 pt-6">
+            <h3 className="text-industrial-text font-semibold mb-4 flex items-center gap-2">
+              <SlidersHorizontal size={16} className="text-industrial-border" />
+              {selectedLanguage === 'en' ? 'Default Command Bar Filters' : 'Bộ lọc command bar mặc định'}
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div>
+                <p className="text-xs text-industrial-text-secondary mb-2 uppercase tracking-wide">{selectedLanguage === 'en' ? 'Shift' : 'Ca'}</p>
+                <select value={selectedShift} onChange={(e) => setShift(e.target.value as 'all' | 'shift_a' | 'shift_b' | 'shift_c')} className="w-full px-3 py-2 rounded-lg bg-industrial-darker border border-industrial-border/30 text-sm text-industrial-text outline-none">
+                  <option value="all">{selectedLanguage === 'en' ? 'All shifts' : 'Tất cả ca'}</option>
+                  <option value="shift_a">{selectedLanguage === 'en' ? 'Shift A' : 'Ca A'}</option>
+                  <option value="shift_b">{selectedLanguage === 'en' ? 'Shift B' : 'Ca B'}</option>
+                  <option value="shift_c">{selectedLanguage === 'en' ? 'Shift C' : 'Ca C'}</option>
+                </select>
+              </div>
+              <div>
+                <p className="text-xs text-industrial-text-secondary mb-2 uppercase tracking-wide">{selectedLanguage === 'en' ? 'Area' : 'Khu vực'}</p>
+                <select value={selectedAreaFilter} onChange={(e) => setAreaFilter(e.target.value)} className="w-full px-3 py-2 rounded-lg bg-industrial-darker border border-industrial-border/30 text-sm text-industrial-text outline-none">
+                  <option value="all">{selectedLanguage === 'en' ? 'All areas' : 'Tất cả khu vực'}</option>
+                  {areaOptions.slice(1).map((area) => (
+                    <option key={area} value={area}>{area}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <p className="text-xs text-industrial-text-secondary mb-2 uppercase tracking-wide">{selectedLanguage === 'en' ? 'Status' : 'Trạng thái'}</p>
+                <select value={selectedStatusFilter} onChange={(e) => setStatusFilter(e.target.value as 'all' | 'RUN' | 'IDLE' | 'STOP' | 'FAULT' | 'MAINT')} className="w-full px-3 py-2 rounded-lg bg-industrial-darker border border-industrial-border/30 text-sm text-industrial-text outline-none">
+                  <option value="all">{selectedLanguage === 'en' ? 'All status' : 'Tất cả trạng thái'}</option>
+                  <option value="RUN">{messages.machine.running}</option>
+                  <option value="IDLE">{messages.machine.idle}</option>
+                  <option value="STOP">{messages.machine.stopped}</option>
+                  <option value="FAULT">{messages.machine.fault}</option>
+                  <option value="MAINT">{messages.machine.maintenance}</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div className="border-t border-industrial-border/20 pt-6">
+            <h3 className="text-industrial-text font-semibold mb-4 flex items-center gap-2">
+              <SettingsIcon size={16} className="text-industrial-border" />
+              {selectedLanguage === 'en' ? 'Role Personalization' : 'Cá nhân hóa theo vai trò'}
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <button onClick={() => setUserRole('manager')} className={`px-3 py-2 rounded-lg border text-sm ${userRole === 'manager' ? 'bg-industrial-border/15 border-industrial-border text-industrial-border' : 'bg-industrial-darker border-industrial-border/30 text-industrial-text'}`}>
+                {selectedLanguage === 'en' ? 'Manager' : 'Quản lý'}
+              </button>
+              <button onClick={() => setUserRole('maintenance')} className={`px-3 py-2 rounded-lg border text-sm ${userRole === 'maintenance' ? 'bg-industrial-border/15 border-industrial-border text-industrial-border' : 'bg-industrial-darker border-industrial-border/30 text-industrial-text'}`}>
+                {selectedLanguage === 'en' ? 'Maintenance' : 'Bảo trì'}
+              </button>
+              <button onClick={() => setUserRole('production')} className={`px-3 py-2 rounded-lg border text-sm ${userRole === 'production' ? 'bg-industrial-border/15 border-industrial-border text-industrial-border' : 'bg-industrial-darker border-industrial-border/30 text-industrial-text'}`}>
+                {selectedLanguage === 'en' ? 'Production Engineer' : 'Kỹ sư sản xuất'}
+              </button>
+            </div>
+          </div>
+
+          <div className="border-t border-industrial-border/20 pt-6">
+            <h3 className="text-industrial-text font-semibold mb-4 flex items-center gap-2">
+              <Clock3 size={16} className="text-industrial-border" />
+              {selectedLanguage === 'en' ? 'Realtime & Alert Policy' : 'Chính sách thời gian thực và cảnh báo'}
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+              <div className="bg-industrial-darker/60 border border-industrial-border/20 rounded-lg p-3">
+                <p className="text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Sampling' : 'Tần suất lấy mẫu'}</p>
+                <p className="text-industrial-text font-medium">2s</p>
+              </div>
+              <div className="bg-industrial-darker/60 border border-industrial-border/20 rounded-lg p-3">
+                <p className="text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Alarm Escalation' : 'Nâng mức cảnh báo'}</p>
+                <p className="text-industrial-text font-medium">{selectedLanguage === 'en' ? 'Critical after 5m unack' : 'Nghiêm trọng sau 5 phút chưa xác nhận'}</p>
+              </div>
+              <div className="bg-industrial-darker/60 border border-industrial-border/20 rounded-lg p-3">
+                <p className="text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Maintenance Reminder' : 'Nhắc bảo trì'}</p>
+                <p className="text-industrial-text font-medium">D-14 / D-7 / D-1</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="border-t border-industrial-border/20 pt-6">
+            <h3 className="text-industrial-text font-semibold mb-4">{selectedLanguage === 'en' ? 'Reporting & Compare Mode' : 'Báo cáo và chế độ so sánh'}</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+              <div className="bg-industrial-darker/60 border border-industrial-border/20 rounded-lg p-3">
+                <p className="text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Compare Window' : 'Cửa sổ so sánh'}</p>
+                <p className="text-industrial-text font-medium">{selectedLanguage === 'en' ? 'Shift / Day / Week' : 'Ca / Ngày / Tuần'}</p>
+              </div>
+              <div className="bg-industrial-darker/60 border border-industrial-border/20 rounded-lg p-3">
+                <p className="text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Export' : 'Xuất dữ liệu'}</p>
+                <p className="text-industrial-text font-medium">{selectedLanguage === 'en' ? 'PDF / CSV / Snapshot' : 'PDF / CSV / Ảnh chụp'}</p>
+              </div>
+              <div className="bg-industrial-darker/60 border border-industrial-border/20 rounded-lg p-3">
+                <p className="text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Retention' : 'Lưu trữ'}</p>
+                <p className="text-industrial-text font-medium">{selectedLanguage === 'en' ? '30 days rolling data' : 'Dữ liệu cuốn chiếu 30 ngày'}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="border-t border-industrial-border/20 pt-6">
             <h3 className="text-industrial-text font-semibold mb-4">{selectedLanguage === 'en' ? 'System Information' : 'Thông tin hệ thống'}</h3>
             <div className="space-y-3 text-sm">
               <div className="flex justify-between md:justify-start md:gap-12">
                 <p className="text-industrial-text-secondary w-32">{selectedLanguage === 'en' ? 'Application Name' : 'Tên ứng dụng'}</p>
-                <p className="text-industrial-text font-medium">Factory Energy & Robot Monitor</p>
+                <p className="text-industrial-text font-medium">{selectedLanguage === 'en' ? 'RMSys Manufacturing Command' : 'RMSys Trung tâm điều hành sản xuất'}</p>
               </div>
               <div className="flex justify-between md:justify-start md:gap-12">
                 <p className="text-industrial-text-secondary w-32">{selectedLanguage === 'en' ? 'Version' : 'Phiên bản'}</p>
@@ -64,7 +169,7 @@ const SettingsPage = () => {
                 <p className="text-industrial-text-secondary w-32">{selectedLanguage === 'en' ? 'Status' : 'Trạng thái'}</p>
                 <div className="flex items-center gap-2 mt-1">
                   <div className="w-2 h-2 rounded-full bg-industrial-success animate-pulse"></div>
-                  <p className="text-industrial-success font-medium">{selectedLanguage === 'en' ? 'Online & Monitoring' : 'Trực tuyến & Đang giám sát'}</p>
+                  <p className="text-industrial-success font-medium">{selectedLanguage === 'en' ? 'Online & Monitoring' : 'Trực tuyến và đang giám sát'}</p>
                 </div>
               </div>
               <div className="flex justify-between md:justify-start md:gap-12">
@@ -75,11 +180,11 @@ const SettingsPage = () => {
           </div>
 
           <div className="border-t border-industrial-border/20 pt-6">
-            <h3 className="text-industrial-text font-semibold mb-4">{selectedLanguage === 'en' ? 'About' : 'Giới thiệu'}</h3>
+            <h3 className="text-industrial-text font-semibold mb-4 flex items-center gap-2"><BellRing size={16} className="text-industrial-border" />{selectedLanguage === 'en' ? 'About' : 'Giới thiệu'}</h3>
             <p className="text-sm text-industrial-text-secondary leading-relaxed max-w-3xl">
               {selectedLanguage === 'en' 
                 ? 'A comprehensive industrial dashboard for real-time monitoring of manufacturing systems, including energy consumption, OEE analytics, machine health, and predictive maintenance features.' 
-                : 'Một bảng điều khiển công nghiệp toàn diện để giám sát các hệ thống sản xuất trong thời gian thực, bao gồm tiêu thụ năng lượng, phân tích hiệu suất tổng thể (OEE), tình trạng sức khoẻ máy móc, và tính năng bảo trììììì dự đoán.'}
+                : 'Nền tảng giám sát công nghiệp theo thời gian thực cho xưởng sản xuất, bao gồm năng lượng, OEE, sức khỏe máy và bảo trì dự đoán.'}
             </p>
             <p className="text-xs text-industrial-text-secondary mt-4">
               © 2026 RMSys Manufacturing Solutions. All rights reserved.

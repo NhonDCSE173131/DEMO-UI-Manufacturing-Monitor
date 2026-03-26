@@ -152,6 +152,50 @@ html {
   @apply text-sm text-industrial-text-secondary font-medium;
 }
 
+.panel-title {
+  @apply text-sm font-semibold uppercase tracking-wider text-industrial-border flex items-center gap-2;
+}
+
+.panel-subtitle {
+  @apply text-xs text-industrial-text-secondary mt-1;
+}
+
+.status-dot {
+  @apply w-2.5 h-2.5 rounded-full;
+}
+
+.status-dot.running {
+  @apply bg-industrial-success;
+}
+
+.status-dot.idle {
+  @apply bg-industrial-info;
+}
+
+.status-dot.warning {
+  @apply bg-industrial-warning;
+}
+
+.status-dot.fault {
+  @apply bg-industrial-error;
+}
+
+.data-layer-badge {
+  @apply text-[10px] px-2 py-1 rounded-md border uppercase tracking-wide;
+}
+
+.data-layer-badge.raw {
+  @apply border-industrial-info/40 text-industrial-info bg-industrial-info/10;
+}
+
+.data-layer-badge.computed {
+  @apply border-industrial-border/40 text-industrial-border bg-industrial-border/10;
+}
+
+.data-layer-badge.predicted {
+  @apply border-industrial-warning/40 text-industrial-warning bg-industrial-warning/10;
+}
+
 .grid-bg {
   background-image: radial-gradient(circle, rgba(30, 144, 255, 0.05) 1px, transparent 1px);
   background-size: 30px 30px;
