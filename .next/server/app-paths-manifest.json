@@ -1,6 +1,4 @@
 {
-  "/alarms/page": "app/alarms/page.js",
   "/page": "app/page.js",
-  "/energy/page": "app/energy/page.js",
   "/machines/page": "app/machines/page.js"
 }

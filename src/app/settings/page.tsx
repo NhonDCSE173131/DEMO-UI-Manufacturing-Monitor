@@ -4,6 +4,10 @@ import { useMachineStore } from '@/lib/store';
 import { Settings as SettingsIcon, SlidersHorizontal, Clock3, BellRing } from 'lucide-react';
 import enMessages from '@/locales/en.json';
 import viMessages from '@/locales/vi.json';
+import { useMachinesData } from '@/hooks/useMachinesData';
+import { useSettingsThresholds } from '@/hooks/useSettingsThresholds';
+import { appEnv } from '@/lib/config/env';
+import { formatAreaLabel } from '@/lib/machine-presentation';
 
 const SettingsPage = () => {
   const {
@@ -17,13 +21,26 @@ const SettingsPage = () => {
     setAreaFilter,
     userRole,
     setUserRole,
-    machines,
   } = useMachineStore();
+  const { machines, loading: machinesLoading, error: machinesError, usingMock: machinesUsingMock } = useMachinesData();
+  const { thresholds, loading: thresholdsLoading, error: thresholdsError, usingMock: thresholdsUsingMock } = useSettingsThresholds();
   const messages = selectedLanguage === 'en' ? enMessages : viMessages;
   const areaOptions = ['all', ...new Set(machines.map((machine) => machine.area))];
 
   return (
     <div className="space-y-6 animate-fade-in">
+      {(!(machinesUsingMock && thresholdsUsingMock) && (machinesLoading || thresholdsLoading || machinesError || thresholdsError)) && (
+        <div className="card-industrial p-3 text-xs border border-industrial-border/20 text-industrial-text-secondary">
+          {machinesLoading || thresholdsLoading
+            ? selectedLanguage === 'en'
+              ? 'Loading system settings from backend...'
+              : 'Dang tai cai dat he thong tu backend...'
+            : selectedLanguage === 'en'
+            ? `Backend unavailable. Showing local fallback. ${machinesError || thresholdsError || ''}`
+            : `Backend tam thoi khong phan hoi. Dang hien thi du lieu du phong. ${machinesError || thresholdsError || ''}`}
+        </div>
+      )}
+
       <div className="card-industrial p-6">
         <h3 className="panel-title mb-5">
           <SettingsIcon size={18} />
@@ -79,7 +96,7 @@ const SettingsPage = () => {
                 <select value={selectedAreaFilter} onChange={(e) => setAreaFilter(e.target.value)} className="w-full px-3 py-2 rounded-lg bg-industrial-darker border border-industrial-border/30 text-sm text-industrial-text outline-none">
                   <option value="all">{selectedLanguage === 'en' ? 'All areas' : 'Tất cả khu vực'}</option>
                   {areaOptions.slice(1).map((area) => (
-                    <option key={area} value={area}>{area}</option>
+                    <option key={area} value={area}>{formatAreaLabel(area, selectedLanguage === 'en' ? 'en' : 'vi')}</option>
                   ))}
                 </select>
               </div>
@@ -123,15 +140,36 @@ const SettingsPage = () => {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
               <div className="bg-industrial-darker/60 border border-industrial-border/20 rounded-lg p-3">
                 <p className="text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Sampling' : 'Tần suất lấy mẫu'}</p>
-                <p className="text-industrial-text font-medium">2s</p>
+                <p className="text-industrial-text font-medium">{thresholds.samplingSeconds}s</p>
               </div>
               <div className="bg-industrial-darker/60 border border-industrial-border/20 rounded-lg p-3">
                 <p className="text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Alarm Escalation' : 'Nâng mức cảnh báo'}</p>
-                <p className="text-industrial-text font-medium">{selectedLanguage === 'en' ? 'Critical after 5m unack' : 'Nghiêm trọng sau 5 phút chưa xác nhận'}</p>
+                <p className="text-industrial-text font-medium">{selectedLanguage === 'en' ? `Critical after ${thresholds.alarmEscalationMinutes}m unack` : `Nghiem trong sau ${thresholds.alarmEscalationMinutes} phut chua xac nhan`}</p>
               </div>
               <div className="bg-industrial-darker/60 border border-industrial-border/20 rounded-lg p-3">
                 <p className="text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Maintenance Reminder' : 'Nhắc bảo trì'}</p>
-                <p className="text-industrial-text font-medium">D-14 / D-7 / D-1</p>
+                <p className="text-industrial-text font-medium">{thresholds.maintenanceLeadDays.map((day) => `D-${day}`).join(' / ')}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="border-t border-industrial-border/20 pt-6">
+            <h3 className="text-industrial-text font-semibold mb-4 flex items-center gap-2">
+              <SettingsIcon size={16} className="text-industrial-border" />
+              {selectedLanguage === 'en' ? 'Backend Thresholds' : 'Ngưỡng từ backend'}
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+              <div className="bg-industrial-darker/60 border border-industrial-border/20 rounded-lg p-3">
+                <p className="text-industrial-text-secondary">{selectedLanguage === 'en' ? 'High temperature' : 'Ngưỡng nhiệt độ cao'}</p>
+                <p className="text-industrial-text font-medium">{thresholds.temperatureHighC}°C</p>
+              </div>
+              <div className="bg-industrial-darker/60 border border-industrial-border/20 rounded-lg p-3">
+                <p className="text-industrial-text-secondary">{selectedLanguage === 'en' ? 'High vibration' : 'Ngưỡng rung cao'}</p>
+                <p className="text-industrial-text font-medium">{thresholds.vibrationHighPct}%</p>
+              </div>
+              <div className="bg-industrial-darker/60 border border-industrial-border/20 rounded-lg p-3">
+                <p className="text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Rolling retention' : 'Chu ky luu tru'}</p>
+                <p className="text-industrial-text font-medium">{thresholds.retentionDays} {selectedLanguage === 'en' ? 'days' : 'ngay'}</p>
               </div>
             </div>
           </div>
@@ -160,6 +198,14 @@ const SettingsPage = () => {
               <div className="flex justify-between md:justify-start md:gap-12">
                 <p className="text-industrial-text-secondary w-32">{selectedLanguage === 'en' ? 'Application Name' : 'Tên ứng dụng'}</p>
                 <p className="text-industrial-text font-medium">{selectedLanguage === 'en' ? 'RMSys Manufacturing Command' : 'RMSys Trung tâm điều hành sản xuất'}</p>
+              </div>
+              <div className="flex justify-between md:justify-start md:gap-12">
+                <p className="text-industrial-text-secondary w-32">{selectedLanguage === 'en' ? 'Backend API' : 'API backend'}</p>
+                <p className="text-industrial-text font-medium">{appEnv.apiBaseUrl}</p>
+              </div>
+              <div className="flex justify-between md:justify-start md:gap-12">
+                <p className="text-industrial-text-secondary w-32">{selectedLanguage === 'en' ? 'Data Mode' : 'Che do du lieu'}</p>
+                <p className="text-industrial-text font-medium">{machinesUsingMock || thresholdsUsingMock ? (selectedLanguage === 'en' ? 'Mock fallback' : 'Du phong mock') : (selectedLanguage === 'en' ? 'Backend live' : 'Backend truc tiep')}</p>
               </div>
               <div className="flex justify-between md:justify-start md:gap-12">
                 <p className="text-industrial-text-secondary w-32">{selectedLanguage === 'en' ? 'Version' : 'Phiên bản'}</p>

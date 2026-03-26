@@ -9,17 +9,16 @@ import viMessages from '@/locales/vi.json';
 import { TimeRangeSelector, TimeRange } from '@/components/TimeRangeSelector';
 import { useState } from 'react';
 import { buildTimeAxisLabels, getDowntimeUnitLabel, getTimeRangeConfig, normalizeDowntimeMinutes } from '@/lib/time-range-config';
+import { useMachinesData } from '@/hooks/useMachinesData';
+import { useAlarmsData } from '@/hooks/useAlarmsData';
+import { formatStopReasonLabel } from '@/lib/machine-presentation';
 
 const OEEPage = () => {
-  const {
-    machines,
-    events,
-    selectedLanguage,
-    selectedShift,
-    selectedAreaFilter,
-    selectedStatusFilter,
-  } = useMachineStore();
+  const { selectedLanguage, selectedShift, selectedAreaFilter, selectedStatusFilter } = useMachineStore();
+  const { machines, loading: machinesLoading, error: machinesError, usingMock: machinesUsingMock } = useMachinesData();
+  const { events, loading: alarmsLoading, error: alarmsError, usingMock: alarmsUsingMock } = useAlarmsData();
   const messages = selectedLanguage === 'en' ? enMessages : viMessages;
+  const locale = selectedLanguage === 'en' ? 'en' : 'vi';
   const [oeeTrendRange, setOeeTrendRange] = useState<TimeRange>('1h');
   const [paretoRange, setParetoRange] = useState<TimeRange>('1h');
 
@@ -42,10 +41,10 @@ const OEEPage = () => {
   const trendAxisLabels = buildTimeAxisLabels(oeeTrendRange, localeKey);
   const paretoUnitLabel = getDowntimeUnitLabel(paretoRange, localeKey);
 
-  const avgOEE = Math.round(displayMachines.reduce((sum, m) => sum + (m.computedMetrics?.oee ?? m.oee), 0) / displayMachines.length);
-  const avgAvailability = Math.round(displayMachines.reduce((sum, m) => sum + (m.computedMetrics?.availability ?? m.availability), 0) / displayMachines.length);
-  const avgPerformance = Math.round(displayMachines.reduce((sum, m) => sum + (m.computedMetrics?.performance ?? m.performance), 0) / displayMachines.length);
-  const avgQuality = Math.round(displayMachines.reduce((sum, m) => sum + (m.computedMetrics?.quality ?? m.quality), 0) / displayMachines.length);
+  const avgOEE = displayMachines.length > 0 ? Math.round(displayMachines.reduce((sum, m) => sum + (m.computedMetrics?.oee ?? m.oee), 0) / displayMachines.length) : 0;
+  const avgAvailability = displayMachines.length > 0 ? Math.round(displayMachines.reduce((sum, m) => sum + (m.computedMetrics?.availability ?? m.availability), 0) / displayMachines.length) : 0;
+  const avgPerformance = displayMachines.length > 0 ? Math.round(displayMachines.reduce((sum, m) => sum + (m.computedMetrics?.performance ?? m.performance), 0) / displayMachines.length) : 0;
+  const avgQuality = displayMachines.length > 0 ? Math.round(displayMachines.reduce((sum, m) => sum + (m.computedMetrics?.quality ?? m.quality), 0) / displayMachines.length) : 0;
 
   const oeeTarget = 85;
   const oeeDelta = avgOEE - oeeTarget;
@@ -117,7 +116,7 @@ const OEEPage = () => {
   const reasonMap = scopedParetoEvents
     .filter((event) => event.durationMin && event.durationMin > 0)
     .reduce((acc: Record<string, number>, event) => {
-      const reason = event.stopReasonCode || event.cause || 'OTHER';
+      const reason = formatStopReasonLabel(event.stopReasonCode || event.cause || 'OTHER', locale);
       acc[reason] = (acc[reason] || 0) + normalizeDowntimeMinutes(event.durationMin || 0, paretoRange);
       return acc;
     }, {});
@@ -156,6 +155,18 @@ const OEEPage = () => {
 
   return (
     <div className="space-y-6 animate-fade-in">
+      {(!(machinesUsingMock && alarmsUsingMock) && (machinesLoading || alarmsLoading || machinesError || alarmsError)) && (
+        <div className="card-industrial p-3 text-xs border border-industrial-border/20 text-industrial-text-secondary">
+          {machinesLoading || alarmsLoading
+            ? selectedLanguage === 'en'
+              ? 'Loading OEE data from backend...'
+              : 'Dang tai du lieu OEE tu backend...'
+            : selectedLanguage === 'en'
+            ? `Backend unavailable. Showing local fallback. ${machinesError || alarmsError || ''}`
+            : `Backend tam thoi khong phan hoi. Dang hien thi du lieu du phong. ${machinesError || alarmsError || ''}`}
+        </div>
+      )}
+
       <div className="card-industrial p-4">
         <div className="flex flex-wrap gap-3 items-center justify-between text-sm">
           <div className="flex items-center gap-2 text-industrial-text-secondary">
@@ -334,7 +345,7 @@ const OEEPage = () => {
                   <p className="text-sm font-semibold text-industrial-text">{event.title}</p>
                   <span className="text-xs text-industrial-text-secondary">{event.durationMin}{selectedLanguage === 'en' ? 'm' : 'phút'}</span>
                 </div>
-                <p className="text-xs text-industrial-text-secondary">{event.stopReasonCode || event.cause || 'OTHER'}</p>
+                <p className="text-xs text-industrial-text-secondary">{formatStopReasonLabel(event.stopReasonCode || event.cause || 'OTHER', locale)}</p>
               </div>
             )) : (
               <p className="text-sm text-industrial-text-secondary">{selectedLanguage === 'en' ? 'No downtime events in selected context' : 'Không có sự kiện dừng máy trong ngữ cảnh đã chọn'}</p>

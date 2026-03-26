@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, Suspense, useCallback, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useMachineStore } from '@/lib/store';
 import { formatNumber, formatDateTime, getHealthScore } from '@/lib/utils';
@@ -10,14 +10,23 @@ import enMessages from '@/locales/en.json';
 import viMessages from '@/locales/vi.json';
 import { TimeRangeSelector, TimeRange } from '@/components/TimeRangeSelector';
 import { getTimeRangeConfig } from '@/lib/time-range-config';
+import { useMachinesData } from '@/hooks/useMachinesData';
+import { useAlarmsData } from '@/hooks/useAlarmsData';
+import { formatMachineCategory, formatMachineMode, formatMachineType, formatStopReasonLabel } from '@/lib/machine-presentation';
+import { useRealtimeStream } from '@/hooks/useRealtimeStream';
+import { mapApiAlarmToUi } from '@/lib/mappers/alarm.mapper';
+import { machinesApi } from '@/lib/api/machines';
 
 function MachineDetailContent() {
   const searchParams = useSearchParams();
   const machineId = searchParams.get('id');
-  const { machines, events, selectedLanguage } = useMachineStore();
-  
+  const { selectedLanguage } = useMachineStore();
+  const { machines, loading, error, usingMock, applyMachinePatch, imageOverrides, saveMachineImage, resetMachineImage } = useMachinesData();
+  const { events, loading: alarmsLoading, error: alarmsError, usingMock: alarmsUsingMock, upsertEvent, acknowledgeMany } = useAlarmsData();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const initialMachine = machines.find(m => m.id === machineId) || machines[0];
-  const [selectedMachineId, setSelectedMachineId] = useState(initialMachine.id);
+  const [selectedMachineId, setSelectedMachineId] = useState(initialMachine?.id || '');
   const [timeRange, setTimeRange] = useState<TimeRange>('1h');
   const [metricRange, setMetricRange] = useState<TimeRange>('1h');
   
@@ -25,10 +34,21 @@ function MachineDetailContent() {
     if (machineId) {
       const found = machines.find(m => m.id === machineId);
       if (found) setSelectedMachineId(found.id);
+    } else if (!selectedMachineId && machines.length > 0) {
+      setSelectedMachineId(machines[0].id);
     }
-  }, [machineId, machines]);
+  }, [machineId, machines, selectedMachineId]);
 
   const selectedMachine = machines.find(m => m.id === selectedMachineId) || machines[0];
+  const locale = selectedLanguage === 'en' ? 'en' : 'vi';
+
+  if (!selectedMachine) {
+    return (
+      <div className="card-industrial p-6 text-sm text-industrial-text-secondary">
+        {selectedLanguage === 'en' ? 'No machine data available.' : 'Khong co du lieu may de hien thi.'}
+      </div>
+    );
+  }
   const messages = selectedLanguage === 'en' ? enMessages : viMessages;
   const getStatusLabel = (status: string) => {
     if (status === 'RUN') return messages.machine.running;
@@ -40,37 +60,243 @@ function MachineDetailContent() {
   };
 
   const machineEvents = events.filter((e) => e.machineId === selectedMachine.id).slice(0, 5);
+  const currentImageOverride = imageOverrides[selectedMachine.id];
+  const machineDetailMessages = (messages.machineDetail as any);
 
   const [history, setHistory] = useState<any[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const [selectedMetric, setSelectedMetric] = useState<string | null>(null);
   const [showAlarmsModal, setShowAlarmsModal] = useState(false);
+  const [pendingImage, setPendingImage] = useState<string | null>(null);
+  const [pendingImageName, setPendingImageName] = useState('');
+  const [imageError, setImageError] = useState<string | null>(null);
+  const [imageMessage, setImageMessage] = useState<string | null>(null);
+  const [isSavingImage, setIsSavingImage] = useState(false);
+
+  const handleRealtimeEvent = useCallback(
+    (event: { topic?: string; data?: unknown; machineId?: string }) => {
+      const payload = (event.data && typeof event.data === 'object' ? event.data : {}) as Record<string, unknown>;
+      const resolvedMachineId =
+        event.machineId ||
+        (typeof payload.machineId === 'string' ? payload.machineId : undefined) ||
+        selectedMachineId;
+
+      if (!resolvedMachineId) return;
+
+      if ((event.topic === 'telemetry' || event.topic === 'connection') && resolvedMachineId) {
+        applyMachinePatch(resolvedMachineId, payload as never);
+      }
+
+      if (event.topic === 'alarm' || 'severity' in payload || 'title' in payload) {
+        upsertEvent(mapApiAlarmToUi({ ...payload, machineId: resolvedMachineId }));
+      }
+    },
+    [applyMachinePatch, selectedMachineId, upsertEvent],
+  );
+
+  const realtime = useRealtimeStream({
+    enabled: Boolean(selectedMachineId) && (!usingMock || !alarmsUsingMock),
+    machineId: selectedMachineId || undefined,
+    topics: ['telemetry', 'alarm', 'connection'],
+    onEvent: handleRealtimeEvent,
+  });
 
   useEffect(() => {
-    if (selectedMachineId) {
-       const initData = Array.from({ length: 30 }).map((_, i) => {
-         const m = machines.find(x => x.id === selectedMachineId) || machines[0];
-         return {
-           timestamp: new Date(Date.now() - (29 - i) * 2000).toISOString(),
-           oee: m.oee + (Math.random() * 4 - 2),
-           availability: m.availability,
-           performance: m.performance,
-           quality: m.quality,
-           powerKw: m.powerKw + (Math.random() * 2 - 1),
-           temperatureC: m.temperatureC ? m.temperatureC + (Math.random() * 2 - 1) : 0,
-           vibrationPct: m.vibrationPct ? m.vibrationPct + (Math.random() * 5 - 2.5) : 0,
-           spindleSpeedRpm: m.spindleSpeedRpm ? m.spindleSpeedRpm + (Math.random() * 10 - 5) : 0,
-           feedRateMmMin: m.feedRateMmMin ? m.feedRateMmMin + (Math.random() * 5 - 2.5) : 0,
-           cuttingSpeedMMin: m.cuttingSpeedMMin,
-           depthOfCutMm: m.depthOfCutMm,
-           feedPerToothMm: m.feedPerToothMm,
-           widthOfCutMm: m.widthOfCutMm,
-           materialRemovalRateCm3Min: m.materialRemovalRateCm3Min,
-           cycleTimeSec: m.cycleTimeSec,
-         };
-       });
-       setHistory(initData);
+    setPendingImage(null);
+    setPendingImageName('');
+    setImageError(null);
+    setImageMessage(null);
+  }, [selectedMachineId]);
+
+  const handleChooseImage = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleImageFileChange = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      event.target.value = '';
+
+      if (!file) return;
+
+      const acceptedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+      const maxSizeBytes = 4 * 1024 * 1024;
+
+      if (!acceptedTypes.includes(file.type)) {
+        setImageError(machineDetailMessages.imageInvalidType || (selectedLanguage === 'en' ? 'Only JPG, PNG or WebP files are supported.' : 'Chi ho tro tep JPG, PNG hoac WebP.'));
+        setImageMessage(null);
+        return;
+      }
+
+      if (file.size > maxSizeBytes) {
+        setImageError(machineDetailMessages.imageTooLarge || (selectedLanguage === 'en' ? 'Image size must not exceed 4 MB.' : 'Dung luong anh khong duoc vuot qua 4 MB.'));
+        setImageMessage(null);
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === 'string') {
+          setPendingImage(reader.result);
+          setPendingImageName(file.name);
+          setImageError(null);
+          setImageMessage(machineDetailMessages.imagePreviewReady || (selectedLanguage === 'en' ? 'Preview is ready. Save to apply this image on the UI.' : 'Anh xem truoc da san sang. Bam luu de ap dung tren giao dien.'));
+        }
+      };
+      reader.onerror = () => {
+        setImageError(machineDetailMessages.imageReadFailed || (selectedLanguage === 'en' ? 'Could not read this image file.' : 'Khong doc duoc tep anh nay.'));
+      };
+      reader.readAsDataURL(file);
+    },
+    [machineDetailMessages.imageInvalidType, machineDetailMessages.imagePreviewReady, machineDetailMessages.imageReadFailed, machineDetailMessages.imageTooLarge, selectedLanguage],
+  );
+
+  const handleSaveImage = useCallback(async () => {
+    if (!pendingImage) {
+      setImageError(machineDetailMessages.imageNoPending || (selectedLanguage === 'en' ? 'Please choose an image before saving.' : 'Vui long chon anh truoc khi luu.'));
+      return;
     }
-  }, [selectedMachineId, machines]);
+
+    setIsSavingImage(true);
+    setImageError(null);
+    try {
+      await saveMachineImage(selectedMachine.id, pendingImage, pendingImageName || undefined);
+      setImageMessage(machineDetailMessages.imageSavedLocal || (selectedLanguage === 'en' ? 'Image has been saved locally on this browser.' : 'Anh da duoc luu cuc bo tren trinh duyet nay.'));
+      setPendingImage(null);
+      setPendingImageName('');
+    } catch {
+      setImageError(machineDetailMessages.imageSaveFailed || (selectedLanguage === 'en' ? 'Could not save the image.' : 'Khong luu duoc anh.'));
+    } finally {
+      setIsSavingImage(false);
+    }
+  }, [machineDetailMessages.imageNoPending, machineDetailMessages.imageSaveFailed, machineDetailMessages.imageSavedLocal, pendingImage, pendingImageName, saveMachineImage, selectedLanguage, selectedMachine.id]);
+
+  const handleResetImage = useCallback(async () => {
+    setIsSavingImage(true);
+    setImageError(null);
+    try {
+      await resetMachineImage(selectedMachine.id);
+      setPendingImage(null);
+      setPendingImageName('');
+      setImageMessage(machineDetailMessages.imageResetDone || (selectedLanguage === 'en' ? 'Restored the default image for this machine.' : 'Da khoi phuc anh mac dinh cho may nay.'));
+    } catch {
+      setImageError(machineDetailMessages.imageResetFailed || (selectedLanguage === 'en' ? 'Could not restore the default image.' : 'Khong khoi phuc duoc anh mac dinh.'));
+    } finally {
+      setIsSavingImage(false);
+    }
+  }, [machineDetailMessages.imageResetDone, machineDetailMessages.imageResetFailed, resetMachineImage, selectedLanguage, selectedMachine.id]);
+
+  const getRangeQuery = useCallback((range: TimeRange) => {
+    const totalMinutes = getTimeRangeConfig(range).totalMinutes;
+    const to = new Date();
+    const from = new Date(to.getTime() - totalMinutes * 60 * 1000);
+
+    const intervalMap: Record<TimeRange, 'raw' | '1m' | '5m' | '15m' | '30m' | '1h' | '6h' | '12h' | '1d'> = {
+      '60s': 'raw',
+      '1h': '5m',
+      '1d': '1h',
+      '1w': '6h',
+      '1m': '1d',
+    };
+
+    return {
+      from: from.toISOString(),
+      to: to.toISOString(),
+      interval: intervalMap[range],
+      aggregation: (intervalMap[range] === 'raw' ? 'last' : 'avg') as 'avg' | 'last',
+      pointCount: getTimeRangeConfig(range).pointCount,
+      totalMinutes,
+    };
+  }, []);
+
+  const buildFallbackHistory = useCallback((range: TimeRange) => {
+    const config = getTimeRangeConfig(range);
+    return Array.from({ length: config.pointCount }).map((_, index) => ({
+      timestamp: new Date(Date.now() - (config.pointCount - 1 - index) * ((config.totalMinutes * 60 * 1000) / Math.max(1, config.pointCount - 1))).toISOString(),
+      oee: selectedMachine.oee,
+      availability: selectedMachine.availability,
+      performance: selectedMachine.performance,
+      quality: selectedMachine.quality,
+      powerKw: selectedMachine.powerKw,
+      temperatureC: selectedMachine.temperatureC || 0,
+      vibrationPct: selectedMachine.vibrationPct || 0,
+      spindleSpeedRpm: selectedMachine.spindleSpeedRpm || 0,
+      feedRateMmMin: selectedMachine.feedRateMmMin || 0,
+      cuttingSpeedMMin: selectedMachine.cuttingSpeedMMin,
+      depthOfCutMm: selectedMachine.depthOfCutMm,
+      feedPerToothMm: selectedMachine.feedPerToothMm,
+      widthOfCutMm: selectedMachine.widthOfCutMm,
+      materialRemovalRateCm3Min: selectedMachine.materialRemovalRateCm3Min,
+      cycleTimeSec: selectedMachine.cycleTimeSec,
+    }));
+  }, [selectedMachine]);
+
+  useEffect(() => {
+    if (!selectedMachineId || usingMock) {
+      setHistory(buildFallbackHistory(timeRange));
+      return;
+    }
+
+    const historyRange = getTimeRangeConfig(timeRange).totalMinutes >= getTimeRangeConfig(metricRange).totalMinutes ? timeRange : metricRange;
+    const query = getRangeQuery(historyRange);
+    let isCancelled = false;
+
+    const loadHistory = async () => {
+      setHistoryLoading(true);
+      setHistoryError(null);
+      try {
+        const points = await machinesApi.getMachineHistory(selectedMachineId, {
+          from: query.from,
+          to: query.to,
+          interval: query.interval,
+          aggregation: query.aggregation,
+        });
+
+        if (isCancelled) return;
+
+        if (!points || points.length === 0) {
+          setHistory(buildFallbackHistory(historyRange));
+          return;
+        }
+
+        setHistory(
+          points.map((point) => ({
+            timestamp: String(point.timestamp || point.ts || new Date().toISOString()),
+            oee: Number(point.oee ?? selectedMachine.oee),
+            availability: Number(point.availability ?? selectedMachine.availability),
+            performance: Number(point.performance ?? selectedMachine.performance),
+            quality: Number(point.quality ?? selectedMachine.quality),
+            powerKw: Number(point.powerKw ?? selectedMachine.powerKw),
+            temperatureC: Number(point.temperatureC ?? selectedMachine.temperatureC ?? 0),
+            vibrationPct: Number(point.vibrationPct ?? selectedMachine.vibrationPct ?? 0),
+            spindleSpeedRpm: Number(point.spindleRpm ?? selectedMachine.spindleSpeedRpm ?? 0),
+            feedRateMmMin: Number(point.feedRateMmMin ?? selectedMachine.feedRateMmMin ?? 0),
+            cuttingSpeedMMin: selectedMachine.cuttingSpeedMMin,
+            depthOfCutMm: selectedMachine.depthOfCutMm,
+            feedPerToothMm: selectedMachine.feedPerToothMm,
+            widthOfCutMm: selectedMachine.widthOfCutMm,
+            materialRemovalRateCm3Min: selectedMachine.materialRemovalRateCm3Min,
+            cycleTimeSec: Number(point.cycleTimeSec ?? selectedMachine.cycleTimeSec),
+          })),
+        );
+      } catch (historyLoadError) {
+        if (isCancelled) return;
+        setHistoryError(historyLoadError instanceof Error ? historyLoadError.message : 'Khong tai duoc lich su telemetry');
+        setHistory(buildFallbackHistory(historyRange));
+      } finally {
+        if (!isCancelled) {
+          setHistoryLoading(false);
+        }
+      }
+    };
+
+    void loadHistory();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [selectedMachineId, timeRange, metricRange, usingMock, getRangeQuery, buildFallbackHistory]);
 
   useEffect(() => {
      setHistory(prev => {
@@ -252,6 +478,17 @@ function MachineDetailContent() {
 
   return (
     <div className="space-y-6 animate-fade-in">
+      {(!(usingMock && alarmsUsingMock) && (loading || alarmsLoading || error || alarmsError)) && (
+        <div className="card-industrial p-3 text-xs border border-industrial-border/20 text-industrial-text-secondary">
+          {loading || alarmsLoading
+            ? selectedLanguage === 'en'
+              ? 'Loading machine detail from backend...'
+              : 'Dang tai chi tiet may tu backend...'
+            : selectedLanguage === 'en'
+            ? `Backend unavailable. Showing local fallback. ${error || alarmsError || ''}`
+            : `Backend tam thoi khong phan hoi. Dang hien thi du lieu du phong. ${error || alarmsError || ''}`}
+        </div>
+      )}
 
       {/* Machine Selector */}
       <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
@@ -297,10 +534,15 @@ function MachineDetailContent() {
           <div>
             <p className="text-xs uppercase tracking-wider text-industrial-text-secondary">{selectedMachine.code}</p>
             <h2 className="text-xl font-bold text-industrial-text">{selectedMachine.name}</h2>
-            <div className="flex gap-1 mt-2">
+            <div className="flex gap-1 mt-2 flex-wrap">
               <span className="data-layer-badge raw">{selectedLanguage === 'en' ? 'raw telemetry' : 'dữ liệu thô'}</span>
               <span className="data-layer-badge computed">{selectedLanguage === 'en' ? 'computed kpi' : 'chỉ số tính toán'}</span>
               <span className="data-layer-badge predicted">{selectedLanguage === 'en' ? 'prediction' : 'dự báo'}</span>
+              <span className={`px-2 py-1 rounded-full text-[11px] border ${realtime.status === 'live' ? 'bg-industrial-success/10 text-industrial-success border-industrial-success/30' : realtime.status === 'degraded' ? 'bg-industrial-warning/10 text-industrial-warning border-industrial-warning/30' : 'bg-industrial-card/60 text-industrial-text-secondary border-industrial-border/20'}`}>
+                {selectedLanguage === 'en'
+                  ? `Realtime: ${realtime.status}`
+                  : `Realtime: ${realtime.status === 'live' ? 'dang song' : realtime.status === 'degraded' ? 'suy giam' : realtime.status === 'connecting' ? 'dang ket noi' : realtime.status === 'idle' ? 'tam dung' : 'ngat ket noi'}`}
+              </span>
             </div>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-6 gap-3 w-full md:w-auto">
@@ -310,7 +552,7 @@ function MachineDetailContent() {
             </div>
             <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg px-3 py-2">
               <p className="text-[10px] uppercase text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Mode' : 'Chế độ'}</p>
-              <p className="text-sm font-semibold text-industrial-text">{selectedMachine.mode}</p>
+              <p className="text-sm font-semibold text-industrial-text">{formatMachineMode(selectedMachine.mode, locale)}</p>
             </div>
             <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg px-3 py-2">
               <p className="text-[10px] uppercase text-industrial-text-secondary">OEE</p>
@@ -338,15 +580,78 @@ function MachineDetailContent() {
           {/* Machine Image & Basic Info */}
           <div className="card-industrial p-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="relative group overflow-hidden rounded-lg">
+              <div className="space-y-3">
+                <div className="relative group overflow-hidden rounded-lg">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  onChange={handleImageFileChange}
+                  className="hidden"
+                />
                 <img
-                  src={selectedMachine.image}
+                  src={pendingImage || selectedMachine.image}
                   alt={selectedMachine.name}
                   className="w-full h-56 object-cover rounded-lg transform group-hover:scale-105 transition-transform duration-500"
+                  onError={(event) => {
+                    event.currentTarget.src = '/img/may.png';
+                  }}
                 />
                 <div className="absolute top-2 right-2 px-3 py-1 rounded bg-black/60 backdrop-blur-md border border-white/10 text-xs font-bold text-white uppercase tracking-wider">
-                  {selectedMachine.type}
+                  {formatMachineType(selectedMachine.type, locale)}
                 </div>
+                <div className="absolute inset-x-0 bottom-0 p-3 bg-gradient-to-t from-black/75 via-black/35 to-transparent">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="px-2 py-1 rounded-full text-[11px] bg-black/55 text-white border border-white/10">
+                      {currentImageOverride
+                        ? machineDetailMessages.imageSourceLocal || (selectedLanguage === 'en' ? 'Local browser image' : 'Anh luu tren trinh duyet')
+                        : machineDetailMessages.imageSourceDefault || (selectedLanguage === 'en' ? 'Default image' : 'Anh mac dinh')}
+                    </span>
+                    {pendingImage && (
+                      <span className="px-2 py-1 rounded-full text-[11px] bg-industrial-warning/15 text-industrial-warning border border-industrial-warning/30">
+                        {machineDetailMessages.imagePendingSave || (selectedLanguage === 'en' ? 'Preview waiting to save' : 'Anh xem truoc chua luu')}
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={handleChooseImage}
+                      className="px-3 py-1.5 rounded-lg bg-black/60 text-white text-xs border border-white/10 hover:bg-black/75 transition-colors"
+                    >
+                      {machineDetailMessages.imageChoose || (selectedLanguage === 'en' ? 'Choose image' : 'Tai anh len')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveImage}
+                      disabled={!pendingImage || isSavingImage}
+                      className="px-3 py-1.5 rounded-lg bg-industrial-border/80 text-industrial-darker text-xs border border-industrial-border disabled:opacity-50 disabled:cursor-not-allowed hover:bg-industrial-border transition-colors"
+                    >
+                      {isSavingImage
+                        ? machineDetailMessages.imageSaving || (selectedLanguage === 'en' ? 'Saving...' : 'Dang luu...')
+                        : machineDetailMessages.imageSave || (selectedLanguage === 'en' ? 'Save image' : 'Luu anh')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleResetImage}
+                      disabled={!currentImageOverride || isSavingImage}
+                      className="px-3 py-1.5 rounded-lg bg-industrial-card/80 text-industrial-text text-xs border border-industrial-border/30 disabled:opacity-50 disabled:cursor-not-allowed hover:border-industrial-border/60 transition-colors"
+                    >
+                      {machineDetailMessages.imageReset || (selectedLanguage === 'en' ? 'Restore default' : 'Khoi phuc anh goc')}
+                    </button>
+                  </div>
+                </div>
+                <div className="rounded-lg border border-industrial-border/20 bg-industrial-darker/40 p-3 text-xs text-industrial-text-secondary">
+                <p className="font-medium text-industrial-text mb-1">{machineDetailMessages.imageManagerTitle || (selectedLanguage === 'en' ? 'Machine image manager' : 'Quan ly anh may')}</p>
+                <p>{machineDetailMessages.imageLocalOnlyHint || (selectedLanguage === 'en' ? 'This image is currently saved only on this browser UI because no backend upload endpoint is configured yet.' : 'Anh hien tai chi duoc luu tren UI cua trinh duyet nay vi chua co endpoint upload tu backend.')}</p>
+                <p className="mt-2">{machineDetailMessages.imageRequirements || (selectedLanguage === 'en' ? 'Supported formats: JPG, PNG, WebP. Maximum size: 4 MB.' : 'Dinh dang ho tro: JPG, PNG, WebP. Dung luong toi da: 4 MB.')}</p>
+                {pendingImageName && (
+                  <p className="mt-2 text-industrial-border">{machineDetailMessages.imageSelectedFile || (selectedLanguage === 'en' ? 'Selected file' : 'Tep da chon')}: {pendingImageName}</p>
+                )}
+                {imageMessage && <p className="mt-2 text-industrial-success">{imageMessage}</p>}
+                {imageError && <p className="mt-2 text-industrial-error">{imageError}</p>}
+              </div>
+              </div>
               </div>
               <div className="space-y-4">
                 <div>
@@ -400,7 +705,7 @@ function MachineDetailContent() {
                 <div>
                   <p className="metric-label mb-2">{selectedLanguage === 'en' ? 'Machine Category' : 'Nhóm máy'}</p>
                   <span className="px-3 py-1 rounded-full text-xs font-semibold bg-industrial-border/10 border border-industrial-border/30 text-industrial-border uppercase tracking-wider">
-                    {selectedMachine.category}
+                    {formatMachineCategory(selectedMachine.category, locale)}
                   </span>
                 </div>
               </div>
@@ -415,13 +720,13 @@ function MachineDetailContent() {
                 <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg p-4">
                   <p className="text-xs uppercase text-industrial-text-secondary mb-2">{selectedLanguage === 'en' ? 'Robot Zone' : 'Khu vực robot'}</p>
                   <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Program' : 'Chương trình'}: {selectedMachine.rawTelemetry?.programName || selectedMachine.currentProgram}</p>
-                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Mode' : 'Chế độ'}: {selectedMachine.rawTelemetry?.mode || selectedMachine.mode}</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Mode' : 'Chế độ'}: {formatMachineMode(selectedMachine.rawTelemetry?.mode || selectedMachine.mode, locale)}</p>
                   <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Servo load' : 'Tải servo'}: {formatNumber(selectedMachine.rawTelemetry?.servoLoadPct ?? selectedMachine.servoLoadPct ?? 0, 0)}%</p>
                 </div>
                 <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg p-4">
                   <p className="text-xs uppercase text-industrial-text-secondary mb-2">{selectedLanguage === 'en' ? 'Cell Handshake' : 'Đồng bộ cell'}</p>
-                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Ready/Busy' : 'Sẵn sàng/Bận'}: {selectedMachine.status === 'RUN' ? 'READY' : 'WAIT'}</p>
-                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Safety interlock' : 'Liên động an toàn'}: {selectedMachine.status === 'FAULT' ? 'TRIPPED' : 'OK'}</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Ready/Busy' : 'Sẵn sàng/Bận'}: {selectedLanguage === 'en' ? (selectedMachine.status === 'RUN' ? 'Ready' : 'Waiting') : (selectedMachine.status === 'RUN' ? 'Sẵn sàng' : 'Đang chờ')}</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Safety interlock' : 'Liên động an toàn'}: {selectedLanguage === 'en' ? (selectedMachine.status === 'FAULT' ? 'Tripped' : 'Normal') : (selectedMachine.status === 'FAULT' ? 'Đã ngắt' : 'Bình thường')}</p>
                   <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Energy' : 'Năng lượng'}: {formatNumber(selectedMachine.rawTelemetry?.powerKw ?? selectedMachine.powerKw, 1)} kW</p>
                 </div>
               </div>
@@ -572,7 +877,7 @@ function MachineDetailContent() {
             <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 mb-6">
               {/* Main OEE Score */}
               <div className="xl:col-span-3 bg-industrial-darker/50 p-4 rounded-xl border border-industrial-border/10 flex flex-col items-center justify-center relative">
-                <p className="text-sm font-semibold text-industrial-text-secondary mb-3">OEE KPI</p>
+                <p className="text-sm font-semibold text-industrial-text-secondary mb-3">{messages.machine.oee} KPI</p>
                 <div className="relative w-32 h-32 mb-2">
                   <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
                     <circle cx="50" cy="50" r="40" fill="none" stroke="rgba(30, 144, 255, 0.1)" strokeWidth="8" />
@@ -668,6 +973,17 @@ function MachineDetailContent() {
                  </h4>
                  <TimeRangeSelector value={timeRange} onChange={setTimeRange} showLabel={false} />
               </div>
+              {(historyLoading || historyError) && (
+                <div className={`mb-3 text-xs ${historyError ? 'text-industrial-warning' : 'text-industrial-text-secondary'}`}>
+                  {historyLoading
+                    ? selectedLanguage === 'en'
+                      ? 'Loading telemetry history from backend...'
+                      : 'Dang tai lich su telemetry tu backend...'
+                    : selectedLanguage === 'en'
+                    ? `Telemetry history fallback is active. ${historyError || ''}`
+                    : `Dang dung du lieu du phong cho lich su telemetry. ${historyError || ''}`}
+                </div>
+              )}
               <div className="bg-[#111] p-1 rounded-lg h-full border border-[#333]">
                   <ReactECharts option={oeeChartOptions} style={{height: '100%', width: '100%'}} />
               </div>
@@ -839,7 +1155,7 @@ function MachineDetailContent() {
                          </div>
                          <div className="flex justify-between items-end">
                             <span className="text-xs text-gray-500">{selectedLanguage === 'en' ? 'Utilization' : 'Mức sử dụng'}</span>
-                            <span className="text-lg font-semibold text-gray-100">{typeof m.value === 'number' ? formatNumber(m.value, 1) : m.value} {m.unit}</span>
+                            <span className="text-lg font-semibold text-gray-100">{formatNumber(m.value, 1)} {m.unit}</span>
                          </div>
                       </div>
                   ))}
@@ -849,7 +1165,7 @@ function MachineDetailContent() {
                <div className="flex-1 flex flex-col bg-[#111] p-6">
                   <div className="flex justify-between items-center mb-4">
                      <h3 className="text-2xl font-light text-gray-100">{activeMetricObj.label}</h3>
-                     <span className="text-sm font-medium text-gray-300">{typeof activeMetricObj.value === 'number' ? formatNumber(activeMetricObj.value, 1) : activeMetricObj.value} {activeMetricObj.unit}</span>
+                     <span className="text-sm font-medium text-gray-300">{formatNumber(activeMetricObj.value, 1)} {activeMetricObj.unit}</span>
                   </div>
 
                   <div className="mb-4 flex justify-end">
@@ -864,7 +1180,7 @@ function MachineDetailContent() {
                      <div className="flex flex-col">
                         <span>{selectedLanguage === 'en' ? 'Current Window' : 'Khung thời gian hiện tại'}</span>
                         <span className="text-xs mt-1">{selectedLanguage === 'en' ? 'Utilization' : 'Mức sử dụng'}</span>
-                        <span className="text-xl text-gray-200">{typeof activeMetricObj.value === 'number' ? formatNumber(activeMetricObj.value, 1) : activeMetricObj.value} {activeMetricObj.unit}</span>
+                        <span className="text-xl text-gray-200">{formatNumber(activeMetricObj.value, 1)} {activeMetricObj.unit}</span>
                      </div>
                      <div className="flex flex-col">
                         <span>{selectedLanguage === 'en' ? 'Max Recorded' : 'Mức lớn nhất'}</span>
@@ -898,10 +1214,13 @@ function MachineDetailContent() {
               {events.filter(e => e.machineId === selectedMachine.id && e.severity !== 'info').map(event => (
                 <div key={event.id} className="p-4 rounded-lg bg-[#181818] border border-industrial-error/30 border-l-4 border-l-industrial-error">
                   <div className="flex justify-between items-start mb-2">
-                    <h3 className="font-bold text-industrial-text">{event.title}</h3>
+                    <h3 className="font-bold text-industrial-text">{selectedLanguage === 'vi' && event.title_vi ? event.title_vi : event.title}</h3>
                     <span className="text-xs text-gray-500 font-mono">{formatDateTime(event.timestamp)}</span>
                   </div>
-                  <p className="text-sm text-gray-300">{event.message}</p>
+                  <p className="text-sm text-gray-300">{selectedLanguage === 'vi' && event.message_vi ? event.message_vi : event.message}</p>
+                  {(event.stopReasonCode || event.cause) && (
+                    <p className="text-xs text-gray-400 mt-2">{formatStopReasonLabel(event.stopReasonCode || event.cause, locale)}</p>
+                  )}
                 </div>
               ))}
               {events.filter(e => e.machineId === selectedMachine.id && e.severity !== 'info').length === 0 && (
@@ -914,7 +1233,12 @@ function MachineDetailContent() {
                </button>
                <button 
                   onClick={() => {
-                     useMachineStore.getState().acknowledgeAlarms(selectedMachine.id);
+                     const pendingAlarmIds = events
+                       .filter((event) => event.machineId === selectedMachine.id && event.severity !== 'info' && !event.acknowledged)
+                       .map((event) => event.id);
+                     if (pendingAlarmIds.length > 0) {
+                       void acknowledgeMany(pendingAlarmIds, 'ui-operator');
+                     }
                      setShowAlarmsModal(false);
                   }} 
                   className="px-4 py-2 rounded bg-industrial-success/20 border border-industrial-success/50 text-industrial-success hover:bg-industrial-success/40 transition-colors font-medium"
@@ -929,9 +1253,19 @@ function MachineDetailContent() {
   );
 }
 
+const MachinesFallback = () => {
+  const { selectedLanguage } = useMachineStore();
+
+  return (
+    <div className="p-8 text-center text-industrial-border animate-pulse">
+      {selectedLanguage === 'en' ? 'Loading machine details...' : 'Dang tai chi tiet may...'}
+    </div>
+  );
+};
+
 const MachinesPage = () => {
   return (
-    <Suspense fallback={<div className="p-8 text-center text-industrial-border animate-pulse">Loading machine details...</div>}>
+    <Suspense fallback={<MachinesFallback />}>
       <MachineDetailContent />
     </Suspense>
   );

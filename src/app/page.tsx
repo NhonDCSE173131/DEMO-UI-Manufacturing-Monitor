@@ -2,24 +2,59 @@
 
 import { useMachineStore } from '@/lib/store';
 import { formatNumber, formatDateTime } from '@/lib/utils';
-import { Activity, Zap, CheckCircle, AlertTriangle, AlertCircle, Settings, Power, TrendingUp, BarChart3, ShieldAlert } from 'lucide-react';
+import { Activity, Zap, CheckCircle, AlertCircle, Settings, Power, BarChart3, ShieldAlert } from 'lucide-react';
 import ReactECharts from 'echarts-for-react';
 import enMessages from '@/locales/en.json';
 import viMessages from '@/locales/vi.json';
 import Link from 'next/link';
 import { TimeRangeSelector, TimeRange } from '@/components/TimeRangeSelector';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { buildTimeAxisLabels, getDowntimeUnitLabel, getTimeRangeConfig, normalizeDowntimeMinutes } from '@/lib/time-range-config';
+import { useMachinesData } from '@/hooks/useMachinesData';
+import { useAlarmsData } from '@/hooks/useAlarmsData';
+import { formatAreaLabel, formatMachineCategory, formatStopReasonLabel } from '@/lib/machine-presentation';
+import { useRealtimeStream } from '@/hooks/useRealtimeStream';
+import { mapApiAlarmToUi } from '@/lib/mappers/alarm.mapper';
+import { useDashboardOverview } from '@/hooks/useDashboardOverview';
 
 const Dashboard = () => {
-  const { machines, events, selectedLanguage, selectedAreaFilter, selectedStatusFilter } = useMachineStore();
+  const { selectedLanguage, selectedAreaFilter, selectedStatusFilter } = useMachineStore();
+  const { machines, loading: machinesLoading, error: machinesError, usingMock: machinesUsingMock, applyMachinePatch } = useMachinesData();
+  const { events, loading: alarmsLoading, error: alarmsError, usingMock: alarmsUsingMock, upsertEvent } = useAlarmsData();
+  const { overview, loading: overviewLoading, error: overviewError, usingMock: overviewUsingMock } = useDashboardOverview();
   const messages = selectedLanguage === 'en' ? enMessages : viMessages;
+  const locale = selectedLanguage === 'en' ? 'en' : 'vi';
   const [compareMode, setCompareMode] = useState<'shift' | 'day' | 'week'>('day');
   const [oeeRange, setOeeRange] = useState<TimeRange>('1h');
   const [powerRange, setPowerRange] = useState<TimeRange>('1h');
   const [energyRange, setEnergyRange] = useState<TimeRange>('1h');
   const [downtimeRange, setDowntimeRange] = useState<TimeRange>('1h');
   const localeKey = selectedLanguage === 'en' ? 'en' : 'vi';
+
+  const handleRealtimeEvent = useCallback(
+    (event: { topic?: string; data?: unknown; machineId?: string }) => {
+      const payload = (event.data && typeof event.data === 'object' ? event.data : {}) as Record<string, unknown>;
+      const resolvedMachineId =
+        event.machineId ||
+        (typeof payload.machineId === 'string' ? payload.machineId : undefined) ||
+        (typeof payload.id === 'string' ? payload.id : undefined);
+
+      if ((event.topic === 'telemetry' || event.topic === 'connection') && resolvedMachineId) {
+        applyMachinePatch(resolvedMachineId, payload as never);
+      }
+
+      if (event.topic === 'alarm' || 'severity' in payload || 'title' in payload) {
+        upsertEvent(mapApiAlarmToUi(payload));
+      }
+    },
+    [applyMachinePatch, upsertEvent],
+  );
+
+  const realtime = useRealtimeStream({
+    enabled: !machinesUsingMock || !alarmsUsingMock,
+    topics: ['telemetry', 'alarm', 'connection'],
+    onEvent: handleRealtimeEvent,
+  });
 
   const filteredMachines = machines.filter((machine) => {
     const matchArea = selectedAreaFilter === 'all' || machine.area === selectedAreaFilter;
@@ -58,13 +93,13 @@ const Dashboard = () => {
   };
 
   // Calculate metrics
-  const totalPower = displayMachines.reduce((sum, m) => sum + m.powerKw, 0);
-  const totalEnergy = displayMachines.reduce((sum, m) => sum + m.energyTodayKwh, 0);
+  const totalPower = overview?.plantPowerKw ?? displayMachines.reduce((sum, m) => sum + m.powerKw, 0);
+  const totalEnergy = overview?.todayEnergyKwh ?? displayMachines.reduce((sum, m) => sum + m.energyTodayKwh, 0);
   const totalProduction = displayMachines.reduce((sum, m) => sum + m.partCount, 0);
   const totalGood = displayMachines.reduce((sum, m) => sum + m.goodCount, 0);
   const totalNG = displayMachines.reduce((sum, m) => sum + m.ngCount, 0);
-  const avgOEE = Math.round(displayMachines.reduce((sum, m) => sum + m.oee, 0) / displayMachines.length);
-  const runningMachines = displayMachines.filter((m) => m.status === 'RUN').length;
+  const avgOEE = overview?.todayOee ?? (displayMachines.length > 0 ? Math.round(displayMachines.reduce((sum, m) => sum + m.oee, 0) / displayMachines.length) : 0);
+  const runningMachines = overview?.runningMachines ?? displayMachines.filter((m) => m.status === 'RUN').length;
   const faultMachines = displayMachines.filter((m) => m.status === 'FAULT').length;
   const idleMachines = displayMachines.filter((m) => m.status === 'IDLE').length;
   const criticalEvents = events.filter(e => e.severity === 'critical');
@@ -192,7 +227,7 @@ const Dashboard = () => {
   const paretoReasonMap = recentDowntimeEvents
     .filter((event) => event.durationMin && event.durationMin > 0)
     .reduce((acc: Record<string, number>, event) => {
-      const reason = event.stopReasonCode || event.cause || 'OTHER';
+      const reason = formatStopReasonLabel(event.stopReasonCode || event.cause || 'OTHER', locale);
       acc[reason] = (acc[reason] || 0) + normalizeDowntimeMinutes(event.durationMin || 0, downtimeRange);
       return acc;
     }, {});
@@ -224,6 +259,18 @@ const Dashboard = () => {
 
   return (
     <div className="space-y-6">
+      {(!(machinesUsingMock && alarmsUsingMock && overviewUsingMock) && (machinesLoading || alarmsLoading || overviewLoading || machinesError || alarmsError || overviewError)) && (
+        <div className="card-industrial p-3 text-xs border border-industrial-border/20 text-industrial-text-secondary">
+          {machinesLoading || alarmsLoading || overviewLoading
+            ? selectedLanguage === 'en'
+              ? 'Loading dashboard data from backend...'
+              : 'Dang tai du lieu tong quan tu backend...'
+            : selectedLanguage === 'en'
+            ? `Backend unavailable. Showing local fallback. ${machinesError || alarmsError || overviewError || ''}`
+            : `Backend tam thoi khong phan hoi. Dang hien thi du lieu du phong. ${machinesError || alarmsError || overviewError || ''}`}
+        </div>
+      )}
+
       <div className="card-industrial p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-3 flex-wrap">
@@ -234,6 +281,11 @@ const Dashboard = () => {
                 <option value="day">{(messages.dashboard as any).day || (selectedLanguage === 'en' ? 'Day' : 'Ngày')}</option>
                 <option value="week">{(messages.dashboard as any).week || (selectedLanguage === 'en' ? 'Week' : 'Tuần')}</option>
               </select>
+            </div>
+            <div className={`px-2.5 py-1 rounded-full text-[11px] border ${realtime.status === 'live' ? 'bg-industrial-success/10 text-industrial-success border-industrial-success/30' : realtime.status === 'degraded' ? 'bg-industrial-warning/10 text-industrial-warning border-industrial-warning/30' : 'bg-industrial-card/60 text-industrial-text-secondary border-industrial-border/20'}`}>
+              {selectedLanguage === 'en'
+                ? `Realtime: ${realtime.status}`
+                : `Realtime: ${realtime.status === 'live' ? 'dang song' : realtime.status === 'degraded' ? 'suy giam' : realtime.status === 'connecting' ? 'dang ket noi' : realtime.status === 'idle' ? 'tam dung' : 'ngat ket noi'}`}
             </div>
           </div>
           <button onClick={exportSnapshot} className="px-3 py-1.5 rounded-lg border border-industrial-border/30 bg-industrial-card/60 text-xs text-industrial-text hover:border-industrial-border/60 transition-colors">
@@ -500,9 +552,9 @@ const Dashboard = () => {
         <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-5 gap-3">
           {displayMachines.map((machine) => (
             <div key={`topology-${machine.id}`} className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg p-3">
-              <p className="text-xs text-industrial-text-secondary">{machine.area}</p>
+              <p className="text-xs text-industrial-text-secondary">{formatAreaLabel(machine.area, locale)}</p>
               <p className="text-sm font-semibold text-industrial-text mt-1">{machine.code}</p>
-              <p className="text-[11px] text-industrial-text-secondary mt-1">{machine.category}</p>
+              <p className="text-[11px] text-industrial-text-secondary mt-1">{formatMachineCategory(machine.category, locale)}</p>
               <div className="mt-2 h-1.5 rounded-full bg-industrial-card overflow-hidden">
                 <div className={`h-full ${machine.status === 'RUN' ? 'bg-industrial-success' : machine.status === 'FAULT' ? 'bg-industrial-error' : 'bg-industrial-info'}`} style={{ width: `${Math.max(10, machine.machineHealth)}%` }}></div>
               </div>
@@ -537,7 +589,7 @@ const Dashboard = () => {
                       }}></div>
                       <p className="font-semibold text-industrial-text truncate group-hover:text-industrial-border transition-colors">{machine.name}</p>
                     </div>
-                    <p className="text-xs text-industrial-text-secondary">{machine.code} · {machine.status}</p>
+                    <p className="text-xs text-industrial-text-secondary">{machine.code} · {messages.machine[machine.status === 'RUN' ? 'running' : machine.status === 'IDLE' ? 'idle' : machine.status === 'STOP' ? 'stopped' : machine.status === 'FAULT' ? 'fault' : 'maintenance']}</p>
                     <div className="flex gap-1 mt-1">
                       <span className="data-layer-badge raw">{selectedLanguage === 'en' ? 'raw' : 'thô'}</span>
                       <span className="data-layer-badge computed">{selectedLanguage === 'en' ? 'kpi' : 'chỉ số'}</span>

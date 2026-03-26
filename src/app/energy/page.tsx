@@ -9,10 +9,14 @@ import viMessages from '@/locales/vi.json';
 import { TimeRangeSelector, TimeRange } from '@/components/TimeRangeSelector';
 import { useState } from 'react';
 import { buildTimeAxisLabels, getTimeRangeConfig } from '@/lib/time-range-config';
+import { useMachinesData } from '@/hooks/useMachinesData';
+import { formatAreaLabel } from '@/lib/machine-presentation';
 
 const EnergyPage = () => {
-  const { machines, selectedLanguage, selectedAreaFilter, selectedStatusFilter } = useMachineStore();
+  const { selectedLanguage, selectedAreaFilter, selectedStatusFilter } = useMachineStore();
+  const { machines, loading, error, usingMock } = useMachinesData();
   const messages = selectedLanguage === 'en' ? enMessages : viMessages;
+  const locale = selectedLanguage === 'en' ? 'en' : 'vi';
   const [distributionRange, setDistributionRange] = useState<TimeRange>('1h');
   const [trendRange, setTrendRange] = useState<TimeRange>('1h');
 
@@ -25,7 +29,7 @@ const EnergyPage = () => {
   const displayMachines = filteredMachines.length > 0 ? filteredMachines : machines;
 
   const totalPowerNow = displayMachines.reduce((sum, m) => sum + m.powerKw, 0);
-  const peakPower = Math.max(...displayMachines.map((m) => m.powerKw)) * 1.2;
+  const peakPower = (displayMachines.length > 0 ? Math.max(...displayMachines.map((m) => m.powerKw)) : 0) * 1.2;
   const totalEnergyToday = displayMachines.reduce((sum, m) => sum + m.energyTodayKwh, 0);
   const totalEnergyMonth = displayMachines.reduce((sum, m) => sum + m.energyMonthKwh, 0);
   const costPerKwh = 0.12;
@@ -121,6 +125,18 @@ const EnergyPage = () => {
 
   return (
     <div className="space-y-6 animate-fade-in">
+      {!usingMock && (loading || error) && (
+        <div className="card-industrial p-3 text-xs border border-industrial-border/20 text-industrial-text-secondary">
+          {loading
+            ? selectedLanguage === 'en'
+              ? 'Loading energy data from backend...'
+              : 'Dang tai du lieu nang luong tu backend...'
+            : selectedLanguage === 'en'
+            ? `Backend unavailable. Showing local fallback. ${error || ''}`
+            : `Backend tam thoi khong phan hoi. Dang hien thi du lieu du phong. ${error || ''}`}
+        </div>
+      )}
+
       {/* Power KPIs */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="card-industrial p-6">
@@ -208,7 +224,7 @@ const EnergyPage = () => {
               return (
                 <div key={area} className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg p-3">
                   <div className="flex items-center justify-between mb-2">
-                    <p className="text-sm font-semibold text-industrial-text">{area}</p>
+                    <p className="text-sm font-semibold text-industrial-text">{formatAreaLabel(area, locale)}</p>
                     <p className="text-sm text-industrial-border font-bold">{formatNumber(energy, 1)} kWh</p>
                   </div>
                   <div className="h-1.5 rounded-full bg-industrial-card overflow-hidden">

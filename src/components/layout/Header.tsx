@@ -9,6 +9,7 @@ import enMessages from '@/locales/en.json';
 import viMessages from '@/locales/vi.json';
 import Link from 'next/link';
 import { getRouteMeta } from '@/lib/route-meta';
+import { formatAreaLabel } from '@/lib/machine-presentation';
 
 const getByPath = (obj: any, path: string, fallback: string) => {
   return path.split('.').reduce((acc: any, key) => (acc && key in acc ? acc[key] : undefined), obj) || fallback;
@@ -241,7 +242,7 @@ const Header = () => {
             <option value="all">{messages.header.allAreas}</option>
             {areaOptions.slice(1).map((area) => (
               <option value={area} key={area}>
-                {area}
+                {formatAreaLabel(area, selectedLanguage === 'en' ? 'en' : 'vi')}
               </option>
             ))}
           </select>
