@@ -1,11 +1,23 @@
 import { appEnv } from '@/lib/config/env';
 import type { SseEventEnvelope } from '@/types/api';
 
-export type RealtimeTopic = 'telemetry' | 'alarm' | 'connection';
+export type RealtimeTopic = 'telemetry' | 'alarm' | 'connection' | 'machine.connection' | 'heartbeat' | 'all';
+
+export const namedRealtimeEvents = [
+  'machine-telemetry-updated',
+  'alarm-created',
+  'alarm-updated',
+  'downtime-created',
+  'machine-connection-changed',
+  'heartbeat.ping',
+] as const;
+
+export type NamedRealtimeEvent = (typeof namedRealtimeEvents)[number];
 
 export interface RealtimeEnvelope<T = unknown> {
   eventId?: string;
   topic?: RealtimeTopic | string;
+  eventName?: NamedRealtimeEvent | string;
   eventType?: string;
   timestamp?: string;
   data?: T;
@@ -16,6 +28,9 @@ export interface RealtimeEnvelope<T = unknown> {
 
 const mapEventTypeToTopic = (eventType?: string, fallbackTopic?: string): string | undefined => {
   if (!eventType) return fallbackTopic;
+  if (eventType.startsWith('machine-telemetry') || eventType.startsWith('telemetry')) return 'telemetry';
+  if (eventType.startsWith('machine-connection') || eventType.startsWith('machine.connection')) return 'connection';
+  if (eventType === 'heartbeat.ping' || eventType === 'heartbeat') return 'heartbeat';
   if (eventType.startsWith('telemetry')) return 'telemetry';
   if (eventType.startsWith('alarm')) return 'alarm';
   if (eventType.startsWith('machine.connection')) return 'connection';
@@ -52,6 +67,7 @@ export const normalizeRealtimeEnvelope = (raw: unknown, fallbackTopic?: string):
   return {
     eventId: typeof candidate.eventId === 'string' ? candidate.eventId : undefined,
     topic: mapEventTypeToTopic(eventType, fallbackTopic),
+    eventName: eventType,
     eventType,
     timestamp:
       typeof candidate.sourceTs === 'string'

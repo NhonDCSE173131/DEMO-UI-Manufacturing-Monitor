@@ -86,6 +86,11 @@ const Header = () => {
   };
 
   const clock = formatClock(currentTime);
+  const roleLabelMap: Record<'manager' | 'maintenance' | 'production', string> = {
+    manager: selectedLanguage === 'en' ? 'Manager' : 'Quản lý',
+    maintenance: selectedLanguage === 'en' ? 'Maintenance' : 'Bảo trì',
+    production: selectedLanguage === 'en' ? 'Production' : 'Sản xuất',
+  };
 
   useEffect(() => {
     if (!showNotifications) return;
@@ -123,8 +128,8 @@ const Header = () => {
           {/* Realtime Clock */}
           <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-industrial-card/50 border border-industrial-border/10 text-industrial-text-secondary">
             <Clock size={14} className="text-industrial-border opacity-70" />
-            <span className="text-sm font-mono font-medium text-industrial-text">{clock.time}</span>
-            <span className="text-xs text-industrial-text-secondary">{clock.date}</span>
+            <span suppressHydrationWarning className="text-sm font-mono font-medium text-industrial-text">{clock.time}</span>
+            <span suppressHydrationWarning className="text-xs text-industrial-text-secondary">{clock.date}</span>
           </div>
 
           {/* Alerts Badge */}
@@ -267,7 +272,7 @@ const Header = () => {
             {(messages.header as any).maintenanceQueue || (selectedLanguage === 'en' ? 'Maintenance Queue' : 'Hàng đợi bảo trì')}
           </Link>
           <span className="px-3 py-1.5 rounded-lg bg-industrial-card/70 border border-industrial-border/20 text-xs text-industrial-text-secondary uppercase">
-            {(messages.header as any).role || (selectedLanguage === 'en' ? 'Role' : 'Vai trò')}: {userRole}
+            {(messages.header as any).role || (selectedLanguage === 'en' ? 'Role' : 'Vai trò')}: {roleLabelMap[userRole]}
           </span>
         </div>
       </div>

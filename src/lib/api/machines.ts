@@ -1,13 +1,19 @@
 import { apiClient } from '@/lib/api/client';
 import { mapApiMachineToUi } from '@/lib/mappers/machine.mapper';
-import type { Machine, MachineEvent } from '@/types';
 import { mapApiAlarmToUi } from '@/lib/mappers/alarm.mapper';
-import type { MachineHistoryQuery, PageResponse, TelemetryPointResponse, TelemetrySeriesResponse } from '@/types/api';
+import type { Machine, MachineEvent } from '@/types';
+import type {
+  DowntimeHistoryPointResponse,
+  MachineHistoryQuery,
+  PageResponse,
+  TelemetryPointResponse,
+  TelemetrySeriesResponse,
+} from '@/types/api';
 
 const toQueryString = (query: Record<string, string | number | undefined>): string => {
   const search = new URLSearchParams();
   Object.entries(query).forEach(([key, value]) => {
-    if (value !== undefined && value !== null) {
+    if (value !== undefined && value !== null && value !== '') {
       search.set(key, String(value));
     }
   });
@@ -47,5 +53,12 @@ export const machinesApi = {
     const data = await apiClient.get<TelemetrySeriesResponse>(`/api/v1/machines/${machineId}/telemetry/history${queryString}`);
     return data.points || [];
   },
-};
 
+  async getMachineDowntimeHistory(machineId: string, from?: string, to?: string, page = 0, size = 20): Promise<DowntimeHistoryPointResponse[]> {
+    const query = toQueryString({ from, to, page, size });
+    const data = await apiClient.get<PageResponse<DowntimeHistoryPointResponse>>(
+      `/api/v1/machines/${machineId}/downtime/history${query}`,
+    );
+    return data.content || [];
+  },
+};

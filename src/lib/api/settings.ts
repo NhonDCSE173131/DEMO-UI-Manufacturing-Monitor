@@ -20,7 +20,6 @@ export const defaultSettingsThresholds: SettingsThresholds = {
 
 export const settingsApi = {
   async getThresholds(): Promise<Partial<SettingsThresholds>> {
-    return apiClient.get<Partial<SettingsThresholds>>('/api/v1/settings/thresholds');
+    return apiClient.get<Partial<SettingsThresholds>>('/api/v1/settings/ui-thresholds');
   },
 };
-

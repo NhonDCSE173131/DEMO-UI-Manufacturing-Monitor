@@ -39,6 +39,138 @@ export interface TelemetrySeriesResponse {
   aggregation?: string;
 }
 
+export interface AnalyticsSeriesPointResponse {
+  label?: string;
+  timestamp?: string;
+  value?: number;
+  unit?: string;
+  oee?: number;
+  availability?: number;
+  performance?: number;
+  quality?: number;
+  powerKw?: number;
+  energyKwh?: number;
+  cost?: number;
+  [key: string]: unknown;
+}
+
+export interface AnalyticsBreakdownItemResponse {
+  id?: string;
+  key?: string;
+  label?: string;
+  name?: string;
+  machineId?: string;
+  machineCode?: string;
+  machineName?: string;
+  area?: string;
+  value?: number;
+  total?: number;
+  percentage?: number;
+  unit?: string;
+  oee?: number;
+  availability?: number;
+  performance?: number;
+  quality?: number;
+  lossMinutes?: number;
+  lossPercent?: number;
+  [key: string]: unknown;
+}
+
+export interface EnergyOverviewResponse {
+  currentPowerKw?: number;
+  plantPowerKw?: number;
+  peakPowerKw?: number;
+  averagePowerKw?: number;
+  todayEnergyKwh?: number;
+  monthEnergyKwh?: number;
+  todayCost?: number;
+  monthCost?: number;
+  costPerKwh?: number;
+  voltageV?: number;
+  currentA?: number;
+  frequencyHz?: number;
+  powerFactor?: number;
+  byArea?: AnalyticsBreakdownItemResponse[];
+  byMachine?: AnalyticsBreakdownItemResponse[];
+  trend?: AnalyticsSeriesPointResponse[];
+  costTrend?: AnalyticsSeriesPointResponse[];
+  [key: string]: unknown;
+}
+
+export interface OeeOverviewResponse {
+  oee?: number;
+  avgOee?: number;
+  availability?: number;
+  avgAvailability?: number;
+  performance?: number;
+  avgPerformance?: number;
+  quality?: number;
+  avgQuality?: number;
+  totalOutput?: number;
+  goodOutput?: number;
+  rejectOutput?: number;
+  targetOutput?: number;
+  workOrder?: string;
+  shiftName?: string;
+  byMachine?: AnalyticsBreakdownItemResponse[];
+  trend?: AnalyticsSeriesPointResponse[];
+  losses?: AnalyticsBreakdownItemResponse[];
+  [key: string]: unknown;
+}
+
+export interface MaintenanceOverviewResponse {
+  summary?: Record<string, unknown>;
+  tasks?: Array<Record<string, unknown>>;
+  nextService?: Array<Record<string, unknown>>;
+  machines?: Array<Record<string, unknown>>;
+  [key: string]: unknown;
+}
+
+export interface ToolsOverviewResponse {
+  summary?: Record<string, unknown>;
+  tools?: Array<Record<string, unknown>>;
+  machines?: Array<Record<string, unknown>>;
+  [key: string]: unknown;
+}
+
+export interface ExportJobResponse {
+  jobId?: string;
+  id?: string;
+  status?: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | string;
+  fileName?: string;
+  downloadUrl?: string;
+  createdAt?: string;
+  completedAt?: string;
+  errorMessage?: string;
+  [key: string]: unknown;
+}
+
+export interface ExportTelemetryRequest {
+  machineId: string;
+  from: string;
+  to: string;
+  metrics?: string[];
+  interval?: MachineHistoryQuery['interval'];
+  aggregation?: MachineHistoryQuery['aggregation'];
+  format?: 'csv' | string;
+  timezone?: string;
+}
+
+export interface DowntimeHistoryPointResponse {
+  id?: string;
+  machineId?: string;
+  reasonCode?: string;
+  reasonGroup?: string;
+  startedAt?: string;
+  endedAt?: string;
+  durationMin?: number;
+  plannedStop?: boolean;
+  abnormalStop?: boolean;
+  notes?: string;
+  severity?: string;
+  [key: string]: unknown;
+}
+
 export interface AcknowledgeAlarmRequest {
   acknowledgedBy: string;
 }

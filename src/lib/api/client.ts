@@ -8,14 +8,14 @@ interface ApiRequestInit extends RequestInit {
 
 const DEFAULT_TIMEOUT_MS = 15000;
 
-const createUrl = (path: string): string => {
+export const buildApiUrl = (path: string): string => {
   if (/^https?:\/\//.test(path)) return path;
   return `${appEnv.apiBaseUrl}${path.startsWith('/') ? path : `/${path}`}`;
 };
 
 const request = async <T>(path: string, init: ApiRequestInit = {}): Promise<T> => {
   const { timeoutMs = DEFAULT_TIMEOUT_MS, ...restInit } = init;
-  const url = createUrl(path);
+  const url = buildApiUrl(path);
 
   try {
     const controller = new AbortController();
@@ -72,5 +72,27 @@ export const apiClient = {
     request<T>(path, { method: 'POST', body: body ? JSON.stringify(body) : undefined, ...init }),
   patch: <T>(path: string, body?: unknown, init?: ApiRequestInit) =>
     request<T>(path, { method: 'PATCH', body: body ? JSON.stringify(body) : undefined, ...init }),
+  getRaw: async (path: string, init: ApiRequestInit = {}) => {
+    const { timeoutMs = DEFAULT_TIMEOUT_MS, ...restInit } = init;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const response = await fetch(buildApiUrl(path), {
+        cache: 'no-store',
+        ...restInit,
+        signal: controller.signal,
+      }).finally(() => clearTimeout(timeout));
+
+      if (!response.ok) {
+        throw new AppError('Yeu cau tai tep that bai', mapHttpStatusToCode(response.status), response.status);
+      }
+
+      return response;
+    } catch (error) {
+      if (error instanceof AppError) throw error;
+      throw new AppError('Khong tai duoc tep tu may chu', 'NETWORK_ERROR');
+    }
+  },
 };
 

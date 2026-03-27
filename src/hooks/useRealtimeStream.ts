@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { buildRealtimeStreamUrl, normalizeRealtimeEnvelope, type RealtimeEnvelope, type RealtimeTopic } from '@/lib/api/realtime';
+import {
+  buildRealtimeStreamUrl,
+  namedRealtimeEvents,
+  normalizeRealtimeEnvelope,
+  type RealtimeEnvelope,
+  type RealtimeTopic,
+} from '@/lib/api/realtime';
 import { appEnv } from '@/lib/config/env';
+
+const LAST_EVENT_ID_STORAGE_KEY = 'mm.realtime.lastEventId';
 
 export type StreamStatus = 'idle' | 'connecting' | 'live' | 'degraded' | 'disconnected';
 
@@ -13,7 +21,10 @@ interface UseRealtimeStreamOptions {
 
 export const useRealtimeStream = ({ enabled = true, machineId, topics, onEvent }: UseRealtimeStreamOptions) => {
   const [status, setStatus] = useState<StreamStatus>(enabled && !appEnv.useMock ? 'connecting' : 'idle');
-  const [lastEventId, setLastEventId] = useState<string | null>(null);
+  const [lastEventId, setLastEventId] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
+    return window.sessionStorage.getItem(LAST_EVENT_ID_STORAGE_KEY);
+  });
   const [lastMessageAt, setLastMessageAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -57,13 +68,14 @@ export const useRealtimeStream = ({ enabled = true, machineId, topics, onEvent }
         setError(null);
       };
 
-      source.onmessage = (message) => {
+      const processMessage = (message: MessageEvent) => {
         try {
           const parsed = message.data ? JSON.parse(message.data) : null;
-          const envelope = normalizeRealtimeEnvelope(parsed);
+          const envelope = normalizeRealtimeEnvelope(parsed, message.type);
           const resolvedEventId = message.lastEventId || envelope.eventId || null;
           if (resolvedEventId) {
             setLastEventId(resolvedEventId);
+            window.sessionStorage.setItem(LAST_EVENT_ID_STORAGE_KEY, resolvedEventId);
           }
           setLastMessageAt(new Date().toISOString());
           setStatus('live');
@@ -72,6 +84,11 @@ export const useRealtimeStream = ({ enabled = true, machineId, topics, onEvent }
           setError('Khong phan tich duoc su kien realtime');
         }
       };
+
+      source.onmessage = processMessage;
+      namedRealtimeEvents.forEach((eventName) => {
+        source.addEventListener(eventName, processMessage as EventListener);
+      });
 
       source.onerror = () => {
         source.close();

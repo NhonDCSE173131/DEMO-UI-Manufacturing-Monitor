@@ -6,7 +6,7 @@ import type { MachineEvent } from '@/types';
 
 export const useAlarmsData = () => {
   const { events: storeEvents } = useMachineStore();
-  const [events, setEvents] = useState<MachineEvent[]>(storeEvents);
+  const [events, setEvents] = useState<MachineEvent[]>(appEnv.useMock ? storeEvents : []);
   const [loading, setLoading] = useState(!appEnv.useMock);
   const [error, setError] = useState<string | null>(null);
 
@@ -31,7 +31,7 @@ export const useAlarmsData = () => {
       setEvents(unique);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Khong tai duoc canh bao');
-      setEvents(storeEvents);
+      setEvents([]);
     } finally {
       setLoading(false);
     }

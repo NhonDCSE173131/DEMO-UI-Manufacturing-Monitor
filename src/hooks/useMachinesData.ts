@@ -15,8 +15,10 @@ import {
 
 export const useMachinesData = () => {
   const { machines: storeMachines, events: storeEvents } = useMachineStore();
-  const [machines, setMachines] = useState<Machine[]>(applyMachineImageOverrides(storeMachines));
-  const [events, setEvents] = useState<MachineEvent[]>(storeEvents);
+  const [machines, setMachines] = useState<Machine[]>(
+    appEnv.useMock ? applyMachineImageOverrides(storeMachines) : [],
+  );
+  const [events, setEvents] = useState<MachineEvent[]>(appEnv.useMock ? storeEvents : []);
   const [imageOverrides, setImageOverrides] = useState<Record<string, MachineImageOverride>>(loadMachineImageOverrides());
   const [loading, setLoading] = useState(!appEnv.useMock);
   const [error, setError] = useState<string | null>(null);
@@ -36,12 +38,11 @@ export const useMachinesData = () => {
       const overrides = loadMachineImageOverrides();
       setImageOverrides(overrides);
       setMachines(applyMachineImageOverrides(apiMachines, overrides));
+      setEvents([]);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Khong tai duoc du lieu may');
-      const overrides = loadMachineImageOverrides();
-      setImageOverrides(overrides);
-      setMachines(applyMachineImageOverrides(storeMachines, overrides));
-      setEvents(storeEvents);
+      setMachines([]);
+      setEvents([]);
     } finally {
       setLoading(false);
     }

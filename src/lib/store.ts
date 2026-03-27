@@ -3,6 +3,7 @@
 import { create } from 'zustand';
 import type { Machine, MachineEvent, RawTelemetry, Tool } from '@/types';
 import { mockMachines, generateMockEvents, mockTools } from './mock-data';
+import { appEnv } from './config/env';
 
 export interface MachineStore {
   machines: Machine[];
@@ -45,6 +46,7 @@ const mergeRawTelemetry = (machine: Machine, overrides: Partial<RawTelemetry> = 
 
 // Simulate real-time updates
 const simulateRealTimeUpdates = (set: any, _get: any) => {
+  if (!appEnv.useMock) return;
   if (typeof window === 'undefined') return;
   
   setInterval(() => {
@@ -199,9 +201,9 @@ export const useMachineStore = create<MachineStore>()((set, get) => {
   simulateRealTimeUpdates(set, get);
 
   return {
-    machines: mockMachines,
-    events: generateMockEvents(),
-    tools: mockTools || [],
+    machines: appEnv.useMock ? mockMachines : [],
+    events: appEnv.useMock ? generateMockEvents() : [],
+    tools: appEnv.useMock ? (mockTools || []) : [],
     selectedLanguage: 'vi',
     userRole: 'manager',
     selectedShift: 'all',

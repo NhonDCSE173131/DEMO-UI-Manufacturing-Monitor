@@ -1,95 +1,109 @@
 'use client';
 
-import { useMachineStore } from '@/lib/store';
-import { formatNumber } from '@/lib/utils';
-import { Zap, Activity } from 'lucide-react';
+import { useMemo, useState } from 'react';
 import ReactECharts from 'echarts-for-react';
+import { Activity, Zap } from 'lucide-react';
+import { TimeRangeSelector, type TimeRange } from '@/components/TimeRangeSelector';
+import { useMachineStore } from '@/lib/store';
+import { useEnergyAnalytics } from '@/hooks/useEnergyAnalytics';
+import { useRealtimeStream } from '@/hooks/useRealtimeStream';
+import { getTimeRangeConfig } from '@/lib/time-range-config';
+import { formatAreaLabel } from '@/lib/machine-presentation';
+import { formatNumber } from '@/lib/utils';
 import enMessages from '@/locales/en.json';
 import viMessages from '@/locales/vi.json';
-import { TimeRangeSelector, TimeRange } from '@/components/TimeRangeSelector';
-import { useState } from 'react';
-import { buildTimeAxisLabels, getTimeRangeConfig } from '@/lib/time-range-config';
-import { useMachinesData } from '@/hooks/useMachinesData';
-import { formatAreaLabel } from '@/lib/machine-presentation';
+
+const toAnalyticsQuery = (range: TimeRange, selectedAreaFilter: string, selectedStatusFilter: string) => {
+  const rangeConfig = getTimeRangeConfig(range);
+  return {
+    from: new Date(Date.now() - rangeConfig.totalMinutes * 60 * 1000).toISOString(),
+    to: new Date().toISOString(),
+    interval: range === '60s' ? 'raw' : range === '1h' ? '5m' : range === '1d' ? '1h' : range === '1w' ? '6h' : '1d',
+    aggregation: 'avg',
+    area: selectedAreaFilter === 'all' ? undefined : selectedAreaFilter,
+    status: selectedStatusFilter === 'all' ? undefined : selectedStatusFilter,
+  } as const;
+};
 
 const EnergyPage = () => {
   const { selectedLanguage, selectedAreaFilter, selectedStatusFilter } = useMachineStore();
-  const { machines, loading, error, usingMock } = useMachinesData();
   const messages = selectedLanguage === 'en' ? enMessages : viMessages;
   const locale = selectedLanguage === 'en' ? 'en' : 'vi';
-  const [distributionRange, setDistributionRange] = useState<TimeRange>('1h');
-  const [trendRange, setTrendRange] = useState<TimeRange>('1h');
 
-  const filteredMachines = machines.filter((machine) => {
-    const matchArea = selectedAreaFilter === 'all' || machine.area === selectedAreaFilter;
-    const matchStatus = selectedStatusFilter === 'all' || machine.status === selectedStatusFilter;
-    return matchArea && matchStatus;
+  const [overviewRange, setOverviewRange] = useState<TimeRange>('1h');
+  const [trendRange, setTrendRange] = useState<TimeRange>('1h');
+  const [distributionRange, setDistributionRange] = useState<TimeRange>('1h');
+  const [costRange, setCostRange] = useState<TimeRange>('1h');
+
+  const overviewQuery = useMemo(() => toAnalyticsQuery(overviewRange, selectedAreaFilter, selectedStatusFilter), [overviewRange, selectedAreaFilter, selectedStatusFilter]);
+  const trendQuery = useMemo(() => toAnalyticsQuery(trendRange, selectedAreaFilter, selectedStatusFilter), [trendRange, selectedAreaFilter, selectedStatusFilter]);
+  const distributionQuery = useMemo(() => toAnalyticsQuery(distributionRange, selectedAreaFilter, selectedStatusFilter), [distributionRange, selectedAreaFilter, selectedStatusFilter]);
+  const costQuery = useMemo(() => toAnalyticsQuery(costRange, selectedAreaFilter, selectedStatusFilter), [costRange, selectedAreaFilter, selectedStatusFilter]);
+
+  const overviewData = useEnergyAnalytics(overviewQuery);
+  const trendData = useEnergyAnalytics(trendQuery);
+  const distributionData = useEnergyAnalytics(distributionQuery);
+  const costData = useEnergyAnalytics(costQuery);
+
+  const realtime = useRealtimeStream({
+    enabled: true,
+    topics: ['telemetry', 'connection'],
   });
 
-  const displayMachines = filteredMachines.length > 0 ? filteredMachines : machines;
+  const overview = overviewData.overview || {};
+  const totalPowerNow = Number(overview.currentPowerKw ?? overview.plantPowerKw ?? 0);
+  const peakPower = Number(overview.peakPowerKw ?? 0);
+  const totalEnergyToday = Number(overview.todayEnergyKwh ?? 0);
+  const totalEnergyMonth = Number(overview.monthEnergyKwh ?? 0);
+  const costToday = Number(costData.cost?.todayCost ?? overview.todayCost ?? 0);
+  const costMonth = Number(costData.cost?.monthCost ?? overview.monthCost ?? 0);
+  const costPerKwh = Number(costData.cost?.costPerKwh ?? overview.costPerKwh ?? 0);
 
-  const totalPowerNow = displayMachines.reduce((sum, m) => sum + m.powerKw, 0);
-  const peakPower = (displayMachines.length > 0 ? Math.max(...displayMachines.map((m) => m.powerKw)) : 0) * 1.2;
-  const totalEnergyToday = displayMachines.reduce((sum, m) => sum + m.energyTodayKwh, 0);
-  const totalEnergyMonth = displayMachines.reduce((sum, m) => sum + m.energyMonthKwh, 0);
-  const costPerKwh = 0.12;
-  const costToday = totalEnergyToday * costPerKwh;
-  const costMonth = totalEnergyMonth * costPerKwh;
-  const localeKey = selectedLanguage === 'en' ? 'en' : 'vi';
-  const distributionConfig = getTimeRangeConfig(distributionRange);
-  const trendConfig = getTimeRangeConfig(trendRange);
-  const distributionUnit = distributionConfig.energyUnit;
-  const trendUnit = trendConfig.energyUnit;
-  const trendAxisLabels = buildTimeAxisLabels(trendRange, localeKey);
+  const machineDistribution = distributionData.byMachine
+    .map((item) => ({
+      label: String(item.machineCode || item.machineName || item.label || item.key || item.id || ''),
+      value: Number(item.value ?? item.total ?? 0),
+    }))
+    .filter((item) => item.label.length > 0);
 
-  const normalizeEnergyValue = (powerKw: number, range: TimeRange) => {
-    const config = getTimeRangeConfig(range);
-    if (config.energyUnit === 'kW') {
-      return powerKw;
-    }
-    return (powerKw * config.totalMinutes) / 60;
-  };
+  const areaDistribution = distributionData.byArea
+    .map((item) => ({
+      area: String(item.area || item.label || item.key || item.id || ''),
+      value: Number(item.value ?? item.total ?? 0),
+      unit: String(item.unit || 'kWh'),
+    }))
+    .filter((item) => item.area.length > 0);
 
-  const pieChartOption = {
+  const trendPoints = trendData.trend.map((point, index) => ({
+    label: String(point.label || point.timestamp || `#${index + 1}`),
+    value: Number(point.value ?? point.energyKwh ?? point.powerKw ?? 0),
+    unit: String(point.unit || ''),
+  }));
+
+  const costTrend = costData.cost?.costTrend || [];
+
+  const distributionOption = {
     tooltip: { trigger: 'item' },
-    legend: { 
-       type: 'scroll',
-       bottom: 0,
-       textStyle: { color: '#8fb3d9' },
-       pageTextStyle: { color: '#8fb3d9' },
-       pageIconColor: '#17a2b8'
-    },
     series: [
       {
-        name: selectedLanguage === 'en' ? `Power (${distributionUnit})` : `Công suất (${distributionUnit})`,
         type: 'pie',
         radius: ['45%', '70%'],
-        center: ['50%', '42%'],
-        avoidLabelOverlap: true,
-        itemStyle: {
-          borderRadius: 4,
-          borderColor: '#0B213F',
-          borderWidth: 2
-        },
-        label: { show: false },
-        data: displayMachines.map((m) => ({ value: normalizeEnergyValue(m.powerKw, distributionRange), name: m.code }))
-      }
-    ]
+        label: { color: '#8fb3d9' },
+        data: machineDistribution.map((item) => ({ name: item.label, value: item.value })),
+      },
+    ],
   };
 
-  const energyTrendOption = {
-    tooltip: { trigger: 'axis', backgroundColor: '#111', borderColor: '#17a2b8', textStyle: { color: '#fff' } },
-    grid: { left: '3%', right: '3%', top: '10%', bottom: '8%', containLabel: true },
+  const trendOption = {
+    tooltip: { trigger: 'axis' },
     xAxis: {
       type: 'category',
-      data: trendAxisLabels,
+      data: trendPoints.map((item) => item.label),
       axisLabel: { color: '#8fb3d9' },
-      axisLine: { lineStyle: { color: '#28445f' } },
     },
     yAxis: {
       type: 'value',
-      axisLabel: { color: '#8fb3d9', formatter: `{value} ${trendUnit}` },
-      splitLine: { lineStyle: { color: '#1a2a3a' } },
+      axisLabel: { color: '#8fb3d9' },
     },
     series: [
       {
@@ -97,228 +111,128 @@ const EnergyPage = () => {
         smooth: true,
         symbol: 'none',
         lineStyle: { color: '#17a2b8', width: 2 },
-        areaStyle: {
-          color: {
-            type: 'linear',
-            x: 0,
-            y: 0,
-            x2: 0,
-            y2: 1,
-            colorStops: [
-              { offset: 0, color: 'rgba(23,162,184,0.35)' },
-              { offset: 1, color: 'rgba(23,162,184,0.05)' },
-            ],
-          },
-        },
-        data: Array.from({ length: trendConfig.pointCount }).map((_, idx) => {
-          const base = normalizeEnergyValue(totalPowerNow, trendRange);
-          return Math.max(1, base * (0.8 + Math.sin(idx / 2) * 0.15 + Math.random() * 0.08));
-        }),
+        data: trendPoints.map((item) => item.value),
       },
     ],
   };
 
-  const areaConsumption = displayMachines.reduce((acc: Record<string, number>, machine) => {
-    acc[machine.area] = (acc[machine.area] || 0) + machine.energyTodayKwh;
-    return acc;
-  }, {});
+  const costTrendOption = {
+    tooltip: { trigger: 'axis' },
+    xAxis: {
+      type: 'category',
+      data: costTrend.map((point, index) => String(point.label || point.timestamp || `#${index + 1}`)),
+      axisLabel: { color: '#8fb3d9' },
+    },
+    yAxis: {
+      type: 'value',
+      axisLabel: { color: '#8fb3d9' },
+    },
+    series: [
+      {
+        type: 'line',
+        smooth: true,
+        symbol: 'none',
+        lineStyle: { color: '#facc15', width: 2 },
+        data: costTrend.map((point) => Number(point.cost ?? point.value ?? 0)),
+      },
+    ],
+  };
+
+  const isLoading = overviewData.loading || trendData.loading || distributionData.loading || costData.loading;
+  const backendError = overviewData.error || trendData.error || distributionData.error || costData.error;
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {!usingMock && (loading || error) && (
+      {(isLoading || backendError) && (
         <div className="card-industrial p-3 text-xs border border-industrial-border/20 text-industrial-text-secondary">
-          {loading
+          {isLoading
             ? selectedLanguage === 'en'
-              ? 'Loading energy data from backend...'
-              : 'Dang tai du lieu nang luong tu backend...'
+              ? 'Loading energy analytics from backend...'
+              : 'Dang tai phan tich nang luong tu backend...'
             : selectedLanguage === 'en'
-            ? `Backend unavailable. Showing local fallback. ${error || ''}`
-            : `Backend tam thoi khong phan hoi. Dang hien thi du lieu du phong. ${error || ''}`}
+            ? `Backend unavailable. ${backendError || ''}`
+            : `Backend tam thoi khong phan hoi. ${backendError || ''}`}
         </div>
       )}
 
-      {/* Power KPIs */}
+      <div className="card-industrial p-4 flex items-center justify-between">
+        <div className="text-xs text-industrial-text-secondary">
+          {selectedLanguage === 'en' ? 'Realtime state:' : 'Trang thai thoi gian thuc:'} <span className="text-industrial-text">{realtime.status}</span>
+        </div>
+        <TimeRangeSelector value={overviewRange} onChange={setOverviewRange} showLabel={false} />
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="card-industrial p-6">
           <p className="metric-label mb-2">{messages.energy.currentPowerKw}</p>
-          <div className="flex items-end gap-2">
-            <p className="metric-number text-industrial-success">{formatNumber(totalPowerNow, 1)}</p>
-            <span className="text-industrial-success mb-1">{messages.energy.powerKw}</span>
-          </div>
-          <p className="text-xs text-industrial-text-secondary mt-2">{messages.energy.currentLoad}</p>
+          <p className="metric-number text-industrial-success">{formatNumber(totalPowerNow, 1)} kW</p>
         </div>
         <div className="card-industrial p-6">
           <p className="metric-label mb-2">{messages.energy.peakPowerToday}</p>
-          <p className="metric-number text-industrial-warning">{formatNumber(peakPower, 1)}</p>
-          <p className="text-xs text-industrial-text-secondary mt-2">{messages.energy.peakCapacity}</p>
+          <p className="metric-number text-industrial-warning">{formatNumber(peakPower, 1)} kW</p>
         </div>
         <div className="card-industrial p-6">
           <p className="metric-label mb-2">{messages.energy.energyToday}</p>
-           <div className="flex items-end gap-2">
-            <p className="metric-number text-industrial-border">{formatNumber(totalEnergyToday, 1)}</p>
-            <span className="text-industrial-text-secondary mb-1">{messages.energy.kWh}</span>
-          </div>
+          <p className="metric-number text-industrial-border">{formatNumber(totalEnergyToday, 1)} kWh</p>
         </div>
         <div className="card-industrial p-6">
           <p className="metric-label mb-2">{messages.energy.energyMonth}</p>
-          <div className="flex items-end gap-2">
-            <p className="metric-number text-industrial-text">{formatNumber(totalEnergyMonth, 0)}</p>
-            <span className="text-industrial-text-secondary mb-1">{messages.energy.kWh}</span>
-          </div>
+          <p className="metric-number text-industrial-text">{formatNumber(totalEnergyMonth, 1)} kWh</p>
         </div>
       </div>
 
-      {/* Cost Analysis & Chart */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="card-industrial p-6 flex flex-col">
-          <h3 className="text-industrial-border font-semibold mb-4">
-            {messages.energy.costAnalysis}
-          </h3>
-          <div className="flex-1 grid grid-cols-2 gap-4">
-            <div className="bg-industrial-darker p-4 rounded-lg flex flex-col justify-center items-center text-center">
-              <p className="text-sm text-industrial-text-secondary mb-1">{messages.energy.today}</p>
-              <p className="text-4xl font-bold text-industrial-border">${formatNumber(costToday, 2)}</p>
-            </div>
-            <div className="bg-industrial-darker p-4 rounded-lg flex flex-col justify-center items-center text-center">
-              <p className="text-sm text-industrial-text-secondary mb-1">{messages.energy.costMonth}</p>
-              <p className="text-4xl font-bold text-industrial-success">${formatNumber(costMonth, 2)}</p>
-            </div>
-          </div>
-          <div className="pt-4 border-t border-industrial-border/20 mt-4">
-            <p className="text-sm text-industrial-text-secondary flex justify-between">
-              <span>{messages.energy.costPerUnit}</span>
-              <span className="font-bold text-industrial-text">${costPerKwh}</span>
-            </p>
-          </div>
-        </div>
-
-        <div className="card-industrial p-6 flex flex-col">
-          <div className="flex items-center justify-between gap-3 mb-2">
-            <h3 className="panel-title">
-              {messages.energy.powerDistributionByMachine}
-            </h3>
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        <div className="card-industrial p-6">
+          <div className="flex items-center justify-between gap-3 mb-4">
+            <h3 className="panel-title"><Zap size={16} /> {messages.energy.powerDistributionByMachine}</h3>
             <TimeRangeSelector value={distributionRange} onChange={setDistributionRange} showLabel={false} />
           </div>
-          <div className="flex-1 min-h-[280px] mt-2 relative">
-            <ReactECharts option={pieChartOption} style={{ height: '100%', width: '100%', position: 'absolute', top: 0, left: 0 }} />
-          </div>
+          <div className="h-64"><ReactECharts option={distributionOption} style={{ height: '100%', width: '100%' }} /></div>
         </div>
-      </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="card-industrial p-6">
           <div className="flex items-center justify-between gap-3 mb-4">
             <h3 className="panel-title">{messages.energy.powerTrendChart}</h3>
             <TimeRangeSelector value={trendRange} onChange={setTrendRange} showLabel={false} />
           </div>
-          <div className="h-64">
-            <ReactECharts option={energyTrendOption} style={{ height: '100%', width: '100%' }} />
-          </div>
-        </div>
-
-        <div className="card-industrial p-6">
-          <h3 className="panel-title mb-4">{messages.energy.energyByArea}</h3>
-          <div className="space-y-3">
-            {Object.entries(areaConsumption).map(([area, energy]) => {
-              const pct = totalEnergyToday > 0 ? (energy / totalEnergyToday) * 100 : 0;
-              return (
-                <div key={area} className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg p-3">
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="text-sm font-semibold text-industrial-text">{formatAreaLabel(area, locale)}</p>
-                    <p className="text-sm text-industrial-border font-bold">{formatNumber(energy, 1)} kWh</p>
-                  </div>
-                  <div className="h-1.5 rounded-full bg-industrial-card overflow-hidden">
-                    <div className="h-full bg-industrial-border" style={{ width: `${pct}%` }}></div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+          <div className="h-64"><ReactECharts option={trendOption} style={{ height: '100%', width: '100%' }} /></div>
         </div>
       </div>
 
-      {/* Detail list */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         <div className="card-industrial p-6">
-          <h3 className="panel-title mb-4">
-            <Activity size={18} />
-            {messages.energy.powerQuality}
-          </h3>
-          <div className="space-y-6">
-            <div>
-              <div className="flex justify-between mb-1">
-                <span className="text-sm text-industrial-text-secondary">{messages.energy.voltage}</span>
-                <span className="text-sm font-bold text-industrial-success">400.2 V</span>
+          <h3 className="panel-title mb-4"><Activity size={16} /> {messages.energy.energyByArea}</h3>
+          <div className="space-y-3">
+            {areaDistribution.map((item) => (
+              <div key={item.area} className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg p-3">
+                <div className="flex justify-between">
+                  <p className="text-sm font-semibold text-industrial-text">{formatAreaLabel(item.area, locale)}</p>
+                  <p className="text-sm text-industrial-border font-bold">{formatNumber(item.value, 1)} {item.unit}</p>
+                </div>
               </div>
-              <div className="h-2 rounded-full bg-industrial-card border border-industrial-border/20">
-                <div className="h-full bg-industrial-success rounded-full" style={{ width: '98%' }}></div>
-              </div>
-            </div>
-            <div>
-              <div className="flex justify-between mb-1">
-                <span className="text-sm text-industrial-text-secondary">{messages.energy.frequency}</span>
-                <span className="text-sm font-bold text-industrial-success">50.1 Hz</span>
-              </div>
-              <div className="h-2 rounded-full bg-industrial-card border border-industrial-border/20">
-                <div className="h-full bg-industrial-success rounded-full" style={{ width: '99%' }}></div>
-              </div>
-            </div>
-            <div>
-              <div className="flex justify-between mb-1">
-                <span className="text-sm text-industrial-text-secondary">{messages.energy.powerFactor}</span>
-                <span className="text-sm font-bold text-industrial-warning">0.94</span>
-              </div>
-              <div className="h-2 rounded-full bg-industrial-card border border-industrial-border/20">
-                <div className="h-full bg-industrial-warning rounded-full" style={{ width: '94%' }}></div>
-              </div>
-            </div>
+            ))}
           </div>
         </div>
 
-        {/* Power Distribution list */}
         <div className="card-industrial p-6">
-          <h3 className="panel-title mb-4">
-            {messages.energy.powerDistributionByMachine}
-          </h3>
-          <div className="space-y-4 max-h-64 overflow-y-auto pr-2">
-            {displayMachines.map((machine) => {
-              const percentage = totalPowerNow > 0 ? (machine.powerKw / totalPowerNow) * 100 : 0;
-              return (
-                <div key={machine.id} className="bg-industrial-darker p-3 rounded-lg border border-industrial-border/10">
-                  <div className="flex justify-between items-center mb-2">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full overflow-hidden border border-industrial-border/30">
-                        <img src={machine.image} alt={machine.name} className="w-full h-full object-cover" />
-                      </div>
-                      <div>
-                        <p className="text-sm font-bold text-industrial-text">{machine.name}</p>
-                        <p className="text-xs text-industrial-text-secondary">{machine.code}</p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm font-bold text-industrial-border">
-                        {formatNumber(machine.powerKw, 1)} {messages.energy.powerKw}
-                      </p>
-                      <p className="text-xs text-industrial-text-secondary">{formatNumber(percentage, 0)}%</p>
-                    </div>
-                  </div>
-                  <div className="h-1.5 rounded-full bg-industrial-card">
-                    <div
-                      className="h-full rounded-full transition-all"
-                      style={{
-                        width: `${percentage}%`,
-                        backgroundColor:
-                          machine.status === 'RUN'
-                            ? '#22c55e'
-                            : machine.status === 'FAULT'
-                            ? '#ef4444'
-                            : '#60a5fa',
-                      }}
-                    ></div>
-                  </div>
-                </div>
-              );
-            })}
+          <div className="flex items-center justify-between gap-3 mb-4">
+            <h3 className="panel-title">{messages.energy.costTrend}</h3>
+            <TimeRangeSelector value={costRange} onChange={setCostRange} showLabel={false} />
+          </div>
+          <div className="h-64"><ReactECharts option={costTrendOption} style={{ height: '100%', width: '100%' }} /></div>
+          <div className="grid grid-cols-3 gap-3 mt-4 text-sm">
+            <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg p-3">
+              <p className="text-industrial-text-secondary">{messages.energy.costToday}</p>
+              <p className="font-bold text-industrial-border">${formatNumber(costToday, 2)}</p>
+            </div>
+            <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg p-3">
+              <p className="text-industrial-text-secondary">{messages.energy.costMonth}</p>
+              <p className="font-bold text-industrial-success">${formatNumber(costMonth, 2)}</p>
+            </div>
+            <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg p-3">
+              <p className="text-industrial-text-secondary">{messages.energy.costPerUnit}</p>
+              <p className="font-bold text-industrial-text">${formatNumber(costPerKwh, 3)}</p>
+            </div>
           </div>
         </div>
       </div>
