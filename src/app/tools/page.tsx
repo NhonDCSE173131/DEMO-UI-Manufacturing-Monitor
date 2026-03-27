@@ -1,6 +1,7 @@
 'use client';
 
 import { useMachineStore } from '@/lib/store';
+import { useMachinesData } from '@/hooks/useMachinesData';
 import { formatNumber } from '@/lib/utils';
 import { Wrench, CheckCircle, AlertTriangle, AlertCircle, X } from 'lucide-react';
 import ReactECharts from 'echarts-for-react';
@@ -9,11 +10,10 @@ import viMessages from '@/locales/vi.json';
 import { useMemo, useState } from 'react';
 import { TimeRangeSelector, TimeRange } from '@/components/TimeRangeSelector';
 import { getTimeRangeConfig } from '@/lib/time-range-config';
-import { useMachinesData } from '@/hooks/useMachinesData';
 
 const ToolsPage = () => {
   const { tools, selectedLanguage, replaceTool } = useMachineStore();
-  const { machines, loading, error, usingMock } = useMachinesData();
+  const { machines, loading, error } = useMachinesData();
   const messages = selectedLanguage === 'en' ? enMessages : viMessages;
 
   const [replacingToolId, setReplacingToolId] = useState<string | null>(null);
@@ -97,18 +97,13 @@ const ToolsPage = () => {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {!usingMock && (loading || error) && (
+      {(loading || error) && (
         <div className="card-industrial p-3 text-xs border border-industrial-border/20 text-industrial-text-secondary">
           {loading
-            ? selectedLanguage === 'en'
-              ? 'Loading tool context from backend...'
-              : 'Dang tai ngu canh dao cu tu backend...'
-            : selectedLanguage === 'en'
-            ? `Backend unavailable. Showing local fallback. ${error || ''}`
-            : `Backend tam thoi khong phan hoi. Dang hien thi du lieu du phong. ${error || ''}`}
+            ? (selectedLanguage === 'en' ? 'Loading tool context from backend...' : 'Đang tải ngữ cảnh dao cụ từ backend...')
+            : `${selectedLanguage === 'en' ? 'Backend unavailable. Showing local fallback.' : 'Backend tạm thời không phản hồi. Đang hiển thị dữ liệu dự phòng.'} ${error || ''}`}
         </div>
       )}
-
       {/* Summary */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="card-industrial p-6 flex flex-col justify-between">

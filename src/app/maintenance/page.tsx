@@ -1,16 +1,16 @@
 'use client';
 
 import { useMachineStore } from '@/lib/store';
+import { useMachinesData } from '@/hooks/useMachinesData';
 import { formatNumber } from '@/lib/utils';
 import { Wrench, AlertTriangle, X, ShieldCheck, CalendarClock, Thermometer, Waves, Cpu } from 'lucide-react';
 import enMessages from '@/locales/en.json';
 import viMessages from '@/locales/vi.json';
 import { useState } from 'react';
-import { useMachinesData } from '@/hooks/useMachinesData';
 
 const MaintenancePage = () => {
   const { selectedLanguage, resolveMaintenance } = useMachineStore();
-  const { machines, loading, error, usingMock } = useMachinesData();
+  const { machines, loading, error } = useMachinesData();
   const messages = selectedLanguage === 'en' ? enMessages : viMessages;
 
   const [maintainingMachineId, setMaintainingMachineId] = useState<string | null>(null);
@@ -48,15 +48,11 @@ const MaintenancePage = () => {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {!usingMock && (loading || error) && (
+      {(loading || error) && (
         <div className="card-industrial p-3 text-xs border border-industrial-border/20 text-industrial-text-secondary">
           {loading
-            ? selectedLanguage === 'en'
-              ? 'Loading maintenance data from backend...'
-              : 'Dang tai du lieu bao tri tu backend...'
-            : selectedLanguage === 'en'
-            ? `Backend unavailable. Showing local fallback. ${error || ''}`
-            : `Backend tam thoi khong phan hoi. Dang hien thi du lieu du phong. ${error || ''}`}
+            ? (selectedLanguage === 'en' ? 'Loading maintenance data from backend...' : 'Đang tải dữ liệu bảo trì từ backend...')
+            : `${selectedLanguage === 'en' ? 'Backend unavailable. Showing local fallback.' : 'Backend tạm thời không phản hồi. Đang hiển thị dữ liệu dự phòng.'} ${error || ''}`}
         </div>
       )}
 
@@ -218,7 +214,7 @@ const MaintenancePage = () => {
                         <p className="text-industrial-text-secondary">{messages.machine.status}</p>
                         <p className="font-semibold text-industrial-text flex items-center gap-1">
                           <span className="w-2 h-2 rounded-full" style={{backgroundColor: machine.status === 'RUN' ? '#22c55e' : machine.status === 'FAULT' ? '#ef4444' : '#60a5fa'}}></span>
-                          {machine.status === 'RUN' ? messages.machine.running : machine.status === 'IDLE' ? messages.machine.idle : machine.status === 'STOP' ? messages.machine.stopped : machine.status === 'FAULT' ? messages.machine.fault : messages.machine.maintenance}
+                          {machine.status}
                         </p>
                       </div>
                     </div>

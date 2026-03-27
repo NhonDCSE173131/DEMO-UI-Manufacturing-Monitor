@@ -16,12 +16,10 @@ export const useSettingsThresholds = () => {
       setThresholds({
         ...defaultSettingsThresholds,
         ...data,
-        maintenanceLeadDays: Array.isArray(data.maintenanceLeadDays)
-          ? data.maintenanceLeadDays
-          : defaultSettingsThresholds.maintenanceLeadDays,
+        maintenanceLeadDays: data.maintenanceLeadDays || defaultSettingsThresholds.maintenanceLeadDays,
       });
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Khong tai duoc nguong he thong');
+      setError(e instanceof Error ? e.message : 'Không tải được ngưỡng hệ thống');
       setThresholds(defaultSettingsThresholds);
     } finally {
       setLoading(false);

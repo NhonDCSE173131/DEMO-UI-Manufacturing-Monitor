@@ -41,7 +41,8 @@ export const mapRealtimeTelemetryPatch = (payload: Record<string, unknown>): Par
         mode,
         powerKw: toNumber(payload.powerKw ?? payload.currentPowerKw),
         temperatureC: toNumber(payload.temperatureC),
-        vibrationPct: toNumber(payload.vibrationPct),
+        // vibrationMmS là field chính từ BE snapshot
+        vibrationPct: toNumber(payload.vibrationMmS ?? payload.vibrationPct),
         spindleRpm: toNumber(payload.spindleRpm ?? payload.spindleSpeedRpm),
         feedRateMmMin: toNumber(payload.feedRateMmMin),
         servoLoadPct: toNumber(payload.servoLoadPct),
@@ -60,11 +61,17 @@ export const mapRealtimeTelemetryPatch = (payload: Record<string, unknown>): Par
     machineHealth: toNumber(payload.machineHealth ?? payload.healthScore),
     activeAlarms: toNumber(payload.activeAlarms ?? payload.alarmCount ?? payload.activeAlarmCount),
     temperatureC: toNumber(payload.temperatureC),
-    vibrationPct: toNumber(payload.vibrationPct),
+    // vibrationMmS là field chính; vibrationPct là alias cũ
+    vibrationPct: toNumber(payload.vibrationMmS ?? payload.vibrationPct),
     spindleSpeedRpm: toNumber(payload.spindleRpm ?? payload.spindleSpeedRpm),
     feedRateMmMin: toNumber(payload.feedRateMmMin),
     servoLoadPct: toNumber(payload.servoLoadPct),
     currentProgram: toString(payload.programName ?? payload.currentProgram),
+    // rejectCount là field chính từ BE; ngCount là alias cũ
+    ngCount: toNumber(payload.rejectCount ?? payload.ngCount),
+    // outputCount là field chính từ BE; partCount là alias cũ
+    partCount: toNumber(payload.outputCount ?? payload.partCount),
+    goodCount: toNumber(payload.goodCount),
     rawTelemetry,
   };
 };

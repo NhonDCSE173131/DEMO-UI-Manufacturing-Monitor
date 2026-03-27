@@ -107,3 +107,28 @@ export const getHealthScore = (score: number, selectedLanguage: 'en' | 'vi' = 'e
 export const calculateDowntimePercentage = (runtime: number, totalTime: number): number => {
   return totalTime > 0 ? ((totalTime - runtime) / totalTime) * 100 : 0;
 };
+
+/**
+ * Format metric value – trả '--' nếu value là undefined/null (không có dữ liệu).
+ * Không ép undefined thành 0.
+ */
+export const formatMetric = (value: number | undefined | null, unit?: string, decimals = 1): string => {
+  if (value === undefined || value === null || !Number.isFinite(value)) return '--';
+  const formatted = value.toFixed(decimals).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return unit ? `${formatted} ${unit}` : formatted;
+};
+
+/** Trả về label trạng thái realtime bằng tiếng Việt */
+export const getRealtimeStatusLabel = (status: string, locale: 'en' | 'vi' = 'vi'): string => {
+  if (locale === 'en') return status;
+  const map: Record<string, string> = {
+    live: 'Trực tiếp',
+    connecting: 'Đang kết nối',
+    degraded: 'Kém ổn định',
+    disconnected: 'Mất kết nối',
+    idle: 'Chờ',
+  };
+  return map[status] || status;
+};
+
+

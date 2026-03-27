@@ -7,18 +7,41 @@ interface RangeConfig {
   pointCount: number;
   energyUnit: 'kW' | 'kWh';
   downtimeUnit: 's' | 'm' | 'h';
+  /** Format chuỗi mô tả cách hiển thị trục X */
+  xAxisFormat: string;
 }
 
 const RANGE_CONFIG: Record<TimeRange, RangeConfig> = {
-  '60s': { totalMinutes: 1, pointCount: 12, energyUnit: 'kW', downtimeUnit: 's' },
-  '1h': { totalMinutes: 60, pointCount: 12, energyUnit: 'kW', downtimeUnit: 'm' },
-  '1d': { totalMinutes: 1440, pointCount: 12, energyUnit: 'kWh', downtimeUnit: 'm' },
-  '1w': { totalMinutes: 10080, pointCount: 14, energyUnit: 'kWh', downtimeUnit: 'h' },
-  '1m': { totalMinutes: 43200, pointCount: 15, energyUnit: 'kWh', downtimeUnit: 'h' },
+  '60s': { totalMinutes: 1, pointCount: 12, energyUnit: 'kW', downtimeUnit: 's', xAxisFormat: 'mm:ss' },
+  '1h': { totalMinutes: 60, pointCount: 12, energyUnit: 'kW', downtimeUnit: 'm', xAxisFormat: 'HH:mm' },
+  '1d': { totalMinutes: 1440, pointCount: 12, energyUnit: 'kWh', downtimeUnit: 'm', xAxisFormat: 'HH:mm' },
+  '1w': { totalMinutes: 10080, pointCount: 14, energyUnit: 'kWh', downtimeUnit: 'h', xAxisFormat: 'DD/MM' },
+  '1m': { totalMinutes: 43200, pointCount: 15, energyUnit: 'kWh', downtimeUnit: 'h', xAxisFormat: 'DD/MM' },
 };
 
 export function getTimeRangeConfig(range: TimeRange): RangeConfig {
   return RANGE_CONFIG[range];
+}
+
+/**
+ * Trả về formatter function cho trục X phù hợp với TimeRange.
+ * Dùng làm axisLabel.formatter trong ECharts.
+ */
+export function getXAxisFormatter(range: TimeRange): (value: string) => string {
+  return (value: string) => {
+    if (!value) return '';
+    const d = new Date(value);
+    if (isNaN(d.getTime())) return value; // fallback: hiển thị nguyên string
+    const pad = (n: number) => String(n).padStart(2, '0');
+    if (range === '60s') {
+      return `${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    }
+    if (range === '1h' || range === '1d') {
+      return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    }
+    // 1w, 1m
+    return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}`;
+  };
 }
 
 export function buildTimeAxisLabels(range: TimeRange, locale: LocaleKey): string[] {

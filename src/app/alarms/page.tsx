@@ -1,6 +1,8 @@
 'use client';
 
 import { useMachineStore } from '@/lib/store';
+import { useMachinesData } from '@/hooks/useMachinesData';
+import { useAlarmsData } from '@/hooks/useAlarmsData';
 import { formatDateTime, getSeverityBgColor, getSeverityBorderColor } from '@/lib/utils';
 import { AlertTriangle, AlertCircle, Info } from 'lucide-react';
 import ReactECharts from 'echarts-for-react';
@@ -9,15 +11,11 @@ import viMessages from '@/locales/vi.json';
 import { useMemo, useState } from 'react';
 import { TimeRangeSelector, TimeRange } from '@/components/TimeRangeSelector';
 import { getDowntimeUnitLabel, getTimeRangeConfig, normalizeDowntimeMinutes } from '@/lib/time-range-config';
-import { useAlarmsData } from '@/hooks/useAlarmsData';
-import { useMachinesData } from '@/hooks/useMachinesData';
-import { formatStopReasonLabel } from '@/lib/machine-presentation';
 
 const AlarmPage = () => {
   const { selectedLanguage } = useMachineStore();
-  const { machines } = useMachinesData();
-  const { events, loading, error, usingMock, acknowledge } = useAlarmsData();
-  const locale = selectedLanguage === 'en' ? 'en' : 'vi';
+  const { machines, loading: machinesLoading, error: machinesError } = useMachinesData();
+  const { events, loading: alarmsLoading, error: alarmsError } = useAlarmsData();
   const [severityFilter, setSeverityFilter] = useState<'all' | 'critical' | 'warning' | 'info'>('all');
   const [machineFilter, setMachineFilter] = useState<'all' | string>('all');
   const [timeRange, setTimeRange] = useState<'all' | '1h' | '8h' | '24h'>('24h');
@@ -80,7 +78,7 @@ const AlarmPage = () => {
   );
 
   const reasonMap = scopedParetoEvents.reduce((acc: Record<string, number>, event) => {
-    const reason = formatStopReasonLabel(event.stopReasonCode || event.cause || 'OTHER', locale);
+    const reason = event.stopReasonCode || event.cause || 'OTHER';
     acc[reason] = (acc[reason] || 0) + normalizeDowntimeMinutes(event.durationMin || 0, paretoRange);
     return acc;
   }, {});
@@ -142,15 +140,11 @@ const AlarmPage = () => {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {!usingMock && (loading || error) && (
+      {(machinesLoading || alarmsLoading || machinesError || alarmsError) && (
         <div className="card-industrial p-3 text-xs border border-industrial-border/20 text-industrial-text-secondary">
-          {loading
-            ? selectedLanguage === 'en'
-              ? 'Loading alarms from backend...'
-              : 'Dang tai canh bao tu backend...'
-            : selectedLanguage === 'en'
-            ? `Backend unavailable. Showing local fallback. ${error || ''}`
-            : `Backend tam thoi khong phan hoi. Dang hien thi du lieu du phong. ${error || ''}`}
+          {machinesLoading || alarmsLoading
+            ? (selectedLanguage === 'en' ? 'Loading alarms from backend...' : 'Đang tải cảnh báo từ backend...')
+            : `${selectedLanguage === 'en' ? 'Backend unavailable. Showing local fallback.' : 'Backend tạm thời không phản hồi. Đang hiển thị dữ liệu dự phòng.'} ${machinesError || alarmsError || ''}`}
         </div>
       )}
 
@@ -254,14 +248,7 @@ const AlarmPage = () => {
                   <span className="text-xs text-industrial-error">{selectedLanguage === 'en' ? 'UNACK' : 'CHƯA XN'}</span>
                 </div>
                 <p className="text-xs text-industrial-text-secondary">{machines.find((machine) => machine.id === event.machineId)?.name || event.machineId}</p>
-                <p className="text-xs text-industrial-text-secondary mt-1">{formatStopReasonLabel(event.stopReasonCode || (selectedLanguage === 'vi' && event.cause_vi ? event.cause_vi : event.cause) || 'UNKNOWN', locale)}</p>
-                <button
-                  type="button"
-                  onClick={() => acknowledge(event.id)}
-                  className="mt-2 px-2 py-1 rounded border border-industrial-border/30 bg-industrial-card/60 text-[11px] text-industrial-text hover:border-industrial-border/60"
-                >
-                  {selectedLanguage === 'en' ? 'Acknowledge' : 'Xac nhan canh bao'}
-                </button>
+                <p className="text-xs text-industrial-text-secondary mt-1">{event.stopReasonCode || (selectedLanguage === 'vi' && event.cause_vi ? event.cause_vi : event.cause) || 'UNKNOWN'}</p>
               </div>
             ))}
           </div>

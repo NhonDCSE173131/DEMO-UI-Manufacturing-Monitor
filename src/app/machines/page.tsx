@@ -1,404 +1,995 @@
 'use client';
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
-import ReactECharts from 'echarts-for-react';
-import { Activity, Clock, Cpu, RefreshCw } from 'lucide-react';
 import { useMachineStore } from '@/lib/store';
 import { useMachinesData } from '@/hooks/useMachinesData';
-import { useRealtimeStream } from '@/hooks/useRealtimeStream';
-import { TimeRangeSelector, type TimeRange } from '@/components/TimeRangeSelector';
-import { getTimeRangeConfig } from '@/lib/time-range-config';
-import { formatMachineMode, formatMachineType } from '@/lib/machine-presentation';
-import { formatDateTime, formatNumber } from '@/lib/utils';
+import { useAlarmsData } from '@/hooks/useAlarmsData';
 import { machinesApi } from '@/lib/api/machines';
-import { mapApiAlarmToUi } from '@/lib/mappers/alarm.mapper';
-import { mapRealtimeTelemetryPatch, pruneUndefinedPatch } from '@/lib/mappers/realtime.mapper';
+import { formatNumber, formatDateTime, getHealthScore } from '@/lib/utils';
+import { Thermometer, Zap, Activity, Clock, Cpu, BarChart3, TrendingUp, Package, AlertTriangle, X } from 'lucide-react';
+import ReactECharts from 'echarts-for-react';
 import enMessages from '@/locales/en.json';
 import viMessages from '@/locales/vi.json';
-import type { Machine, MachineEvent } from '@/types';
-
-interface TelemetryChartPoint {
-  timestamp: string;
-  oee: number;
-  availability: number;
-  performance: number;
-  quality: number;
-  powerKw: number;
-  temperatureC: number;
-  vibrationPct: number;
-}
-
-const toHistoryQuery = (range: TimeRange) => {
-  const config = getTimeRangeConfig(range);
-  const intervalMap: Record<TimeRange, 'raw' | '5m' | '1h' | '6h' | '1d'> = {
-    '60s': 'raw',
-    '1h': '5m',
-    '1d': '1h',
-    '1w': '6h',
-    '1m': '1d',
-  };
-  return {
-    from: new Date(Date.now() - config.totalMinutes * 60 * 1000).toISOString(),
-    to: new Date().toISOString(),
-    interval: intervalMap[range],
-    aggregation: (range === '60s' ? 'last' : 'avg') as 'avg' | 'last',
-    totalMinutes: config.totalMinutes,
-  };
-};
-
-const mapMachineToPoint = (machine: Machine, timestamp: string): TelemetryChartPoint => ({
-  timestamp,
-  oee: Number(machine.oee || 0),
-  availability: Number(machine.availability || 0),
-  performance: Number(machine.performance || 0),
-  quality: Number(machine.quality || 0),
-  powerKw: Number(machine.powerKw || 0),
-  temperatureC: Number(machine.temperatureC || 0),
-  vibrationPct: Number(machine.vibrationPct || 0),
-});
-
-const mapHistoryPoint = (raw: Record<string, unknown>, fallbackMachine: Machine): TelemetryChartPoint => ({
-  timestamp: String(raw.timestamp || raw.ts || new Date().toISOString()),
-  oee: Number(raw.oee ?? fallbackMachine.oee ?? 0),
-  availability: Number(raw.availability ?? fallbackMachine.availability ?? 0),
-  performance: Number(raw.performance ?? fallbackMachine.performance ?? 0),
-  quality: Number(raw.quality ?? fallbackMachine.quality ?? 0),
-  powerKw: Number(raw.powerKw ?? fallbackMachine.powerKw ?? 0),
-  temperatureC: Number(raw.temperatureC ?? fallbackMachine.temperatureC ?? 0),
-  vibrationPct: Number(raw.vibrationPct ?? fallbackMachine.vibrationPct ?? 0),
-});
+import { TimeRangeSelector, TimeRange } from '@/components/TimeRangeSelector';
+import { getTimeRangeConfig } from '@/lib/time-range-config';
 
 function MachineDetailContent() {
   const searchParams = useSearchParams();
-  const machineIdFromQuery = searchParams.get('id');
+  const machineId = searchParams.get('id');
   const { selectedLanguage } = useMachineStore();
-  const { machines, loading: machinesLoading, error: machinesError, applyMachinePatch } = useMachinesData();
-  const messages = selectedLanguage === 'en' ? enMessages : viMessages;
-  const locale = selectedLanguage === 'en' ? 'en' : 'vi';
-
-  const [selectedMachineId, setSelectedMachineId] = useState('');
-  const [historyRange, setHistoryRange] = useState<TimeRange>('1h');
+  const { machines, loading: machinesLoading } = useMachinesData();
+  const { events, acknowledge } = useAlarmsData();
+  
+  const initialMachine = machines.find(m => m.id === machineId) || machines[0];
+  const [selectedMachineId, setSelectedMachineId] = useState(initialMachine?.id || '');
+  const [timeRange, setTimeRange] = useState<TimeRange>('1h');
   const [metricRange, setMetricRange] = useState<TimeRange>('1h');
-
-  const [detailMachine, setDetailMachine] = useState<Machine | null>(null);
-  const [latestMachine, setLatestMachine] = useState<Machine | null>(null);
-  const [alarmHistory, setAlarmHistory] = useState<MachineEvent[]>([]);
-  const [downtimeHistory, setDowntimeHistory] = useState<Array<Record<string, unknown>>>([]);
-
-  const [historyState, setHistoryState] = useState<TelemetryChartPoint[]>([]);
-  const [historyLoading, setHistoryLoading] = useState(false);
-  const [historyError, setHistoryError] = useState<string | null>(null);
-
-  const [liveState, setLiveState] = useState<TelemetryChartPoint | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [detailError, setDetailError] = useState<string | null>(null);
-
+  
   useEffect(() => {
-    if (machineIdFromQuery) {
-      setSelectedMachineId(machineIdFromQuery);
-      return;
+    if (machineId) {
+      const found = machines.find(m => m.id === machineId);
+      if (found) setSelectedMachineId(found.id);
     }
-    if (!selectedMachineId && machines.length > 0) {
-      setSelectedMachineId(machines[0].id);
-    }
-  }, [machineIdFromQuery, machines, selectedMachineId]);
+  }, [machineId, machines]);
 
-  const selectedMachine = useMemo(() => {
-    const listMachine = machines.find((item) => item.id === selectedMachineId) || null;
-    return latestMachine || detailMachine || listMachine;
-  }, [machines, selectedMachineId, latestMachine, detailMachine]);
-
-  const loadMachineDetail = useCallback(async () => {
-    if (!selectedMachineId) return;
-    setDetailLoading(true);
-    setDetailError(null);
-    try {
-      const [detail, latest, alarms, downtime] = await Promise.all([
-        machinesApi.getMachineDetail(selectedMachineId),
-        machinesApi.getMachineLatest(selectedMachineId),
-        machinesApi.getMachineAlarms(selectedMachineId, undefined, undefined, 0, 50),
-        machinesApi.getMachineDowntimeHistory(selectedMachineId, undefined, undefined, 0, 50),
-      ]);
-      setDetailMachine(detail);
-      setLatestMachine(latest);
-      setAlarmHistory(alarms);
-      setDowntimeHistory(downtime as Array<Record<string, unknown>>);
-      setLiveState(mapMachineToPoint(latest, new Date().toISOString()));
-      applyMachinePatch(selectedMachineId, latest);
-    } catch (error) {
-      setDetailError(error instanceof Error ? error.message : 'Khong tai duoc chi tiet may');
-      setDetailMachine(null);
-      setLatestMachine(null);
-      setAlarmHistory([]);
-      setDowntimeHistory([]);
-      setLiveState(null);
-    } finally {
-      setDetailLoading(false);
-    }
-  }, [applyMachinePatch, selectedMachineId]);
-
-  const loadTelemetryHistory = useCallback(async () => {
-    if (!selectedMachineId) return;
-    const baselineMachine = selectedMachine;
-    if (!baselineMachine) return;
-
-    const historyQueryRange = getTimeRangeConfig(historyRange).totalMinutes >= getTimeRangeConfig(metricRange).totalMinutes ? historyRange : metricRange;
-    const query = toHistoryQuery(historyQueryRange);
-
-    setHistoryLoading(true);
-    setHistoryError(null);
-    try {
-      const rawPoints = await machinesApi.getMachineHistory(selectedMachineId, {
-        from: query.from,
-        to: query.to,
-        interval: query.interval,
-        aggregation: query.aggregation,
-      });
-      setHistoryState(rawPoints.map((point) => mapHistoryPoint(point as Record<string, unknown>, baselineMachine)));
-    } catch (error) {
-      setHistoryError(error instanceof Error ? error.message : 'Khong tai duoc lich su telemetry');
-      setHistoryState([]);
-    } finally {
-      setHistoryLoading(false);
-    }
-  }, [historyRange, metricRange, selectedMachine, selectedMachineId]);
-
-  useEffect(() => {
-    void loadMachineDetail();
-  }, [loadMachineDetail]);
-
-  useEffect(() => {
-    void loadTelemetryHistory();
-  }, [loadTelemetryHistory]);
-
-  const shouldAppendToRange = useCallback((timestamp: string, range: TimeRange) => {
-    const windowStart = Date.now() - getTimeRangeConfig(range).totalMinutes * 60 * 1000;
-    return new Date(timestamp).getTime() >= windowStart;
-  }, []);
-
-  const handleRealtimeEvent = useCallback(
-    (event: { topic?: string; data?: unknown; machineId?: string; timestamp?: string }) => {
-      const payload = (event.data && typeof event.data === 'object' ? event.data : {}) as Record<string, unknown>;
-      const resolvedMachineId = event.machineId || (typeof payload.machineId === 'string' ? payload.machineId : undefined);
-      if (!resolvedMachineId || resolvedMachineId !== selectedMachineId) return;
-
-      if (event.topic === 'telemetry' || event.topic === 'connection') {
-        const patch = pruneUndefinedPatch(mapRealtimeTelemetryPatch(payload));
-        if (Object.keys(patch).length > 0) {
-          applyMachinePatch(resolvedMachineId, patch as never);
-        }
-
-        const pointTimestamp = String(payload.timestamp || payload.ts || event.timestamp || new Date().toISOString());
-        const point = {
-          timestamp: pointTimestamp,
-          oee: Number(payload.oee ?? liveState?.oee ?? selectedMachine?.oee ?? 0),
-          availability: Number(payload.availability ?? liveState?.availability ?? selectedMachine?.availability ?? 0),
-          performance: Number(payload.performance ?? liveState?.performance ?? selectedMachine?.performance ?? 0),
-          quality: Number(payload.quality ?? liveState?.quality ?? selectedMachine?.quality ?? 0),
-          powerKw: Number(payload.powerKw ?? liveState?.powerKw ?? selectedMachine?.powerKw ?? 0),
-          temperatureC: Number(payload.temperatureC ?? liveState?.temperatureC ?? selectedMachine?.temperatureC ?? 0),
-          vibrationPct: Number(payload.vibrationPct ?? liveState?.vibrationPct ?? selectedMachine?.vibrationPct ?? 0),
-        } as TelemetryChartPoint;
-
-        setLiveState(point);
-
-        if (shouldAppendToRange(point.timestamp, historyRange) || shouldAppendToRange(point.timestamp, metricRange)) {
-          setHistoryState((prev) => {
-            const next = [...prev.filter((item) => item.timestamp !== point.timestamp), point];
-            const cap = Math.max(getTimeRangeConfig(historyRange).pointCount, getTimeRangeConfig(metricRange).pointCount) * 2;
-            return next.slice(-cap);
-          });
-        }
-      }
-
-      if (event.topic === 'alarm' || 'severity' in payload || 'title' in payload) {
-        const next = mapApiAlarmToUi({ ...payload, machineId: resolvedMachineId });
-        setAlarmHistory((prev) => [next, ...prev.filter((item) => item.id !== next.id)].slice(0, 100));
-      }
-    },
-    [applyMachinePatch, historyRange, liveState, metricRange, selectedMachine, selectedMachineId, shouldAppendToRange],
-  );
-
-  const realtime = useRealtimeStream({
-    enabled: Boolean(selectedMachineId),
-    machineId: selectedMachineId || undefined,
-    topics: ['telemetry', 'alarm', 'connection'],
-    onEvent: handleRealtimeEvent,
-  });
-
-  const historyWindow = useMemo(() => {
-    const start = Date.now() - getTimeRangeConfig(historyRange).totalMinutes * 60 * 1000;
-    return historyState.filter((item) => new Date(item.timestamp).getTime() >= start);
-  }, [historyRange, historyState]);
-
-  const metricWindow = useMemo(() => {
-    const start = Date.now() - getTimeRangeConfig(metricRange).totalMinutes * 60 * 1000;
-    return historyState.filter((item) => new Date(item.timestamp).getTime() >= start);
-  }, [metricRange, historyState]);
-
-  const oeeChartOption = {
-    tooltip: { trigger: 'axis' },
-    xAxis: {
-      type: 'category',
-      data: historyWindow.map((point) => formatDateTime(point.timestamp).split(' ')[1] || ''),
-      axisLabel: { color: '#8fb3d9' },
-    },
-    yAxis: {
-      type: 'value',
-      min: 0,
-      max: 100,
-      axisLabel: { color: '#8fb3d9', formatter: '{value}%' },
-    },
-    series: [
-      { name: 'OEE', type: 'line', smooth: true, symbol: 'none', lineStyle: { color: '#17a2b8' }, data: historyWindow.map((point) => point.oee) },
-      { name: selectedLanguage === 'en' ? 'Availability' : 'Kha dung', type: 'line', smooth: true, symbol: 'none', lineStyle: { color: '#22c55e' }, data: historyWindow.map((point) => point.availability) },
-      { name: selectedLanguage === 'en' ? 'Performance' : 'Hieu suat', type: 'line', smooth: true, symbol: 'none', lineStyle: { color: '#60a5fa' }, data: historyWindow.map((point) => point.performance) },
-      { name: selectedLanguage === 'en' ? 'Quality' : 'Chat luong', type: 'line', smooth: true, symbol: 'none', lineStyle: { color: '#facc15' }, data: historyWindow.map((point) => point.quality) },
-    ],
+  const selectedMachine = machines.find(m => m.id === selectedMachineId) || machines[0];
+  const messages = selectedLanguage === 'en' ? enMessages : viMessages;
+  const getStatusLabel = (status: string) => {
+    if (status === 'RUN') return messages.machine.running;
+    if (status === 'FAULT') return messages.machine.fault;
+    if (status === 'IDLE') return messages.machine.idle;
+    if (status === 'STOP') return messages.machine.stopped;
+    if (status === 'MAINT') return messages.machine.maintenance;
+    return status;
   };
 
-  const metricChartOption = {
-    tooltip: { trigger: 'axis' },
-    xAxis: {
-      type: 'category',
-      data: metricWindow.map((point) => formatDateTime(point.timestamp).split(' ')[1] || ''),
-      axisLabel: { color: '#8fb3d9' },
-    },
-    yAxis: {
-      type: 'value',
-      axisLabel: { color: '#8fb3d9' },
-    },
-    series: [
-      { name: selectedLanguage === 'en' ? 'Power' : 'Cong suat', type: 'line', smooth: true, symbol: 'none', lineStyle: { color: '#17a2b8' }, data: metricWindow.map((point) => point.powerKw) },
-      { name: selectedLanguage === 'en' ? 'Temperature' : 'Nhiet do', type: 'line', smooth: true, symbol: 'none', lineStyle: { color: '#ef4444' }, data: metricWindow.map((point) => point.temperatureC) },
-      { name: selectedLanguage === 'en' ? 'Vibration' : 'Do rung', type: 'line', smooth: true, symbol: 'none', lineStyle: { color: '#facc15' }, data: metricWindow.map((point) => point.vibrationPct) },
-    ],
+  const machineEvents = selectedMachine
+    ? events.filter((e) => e.machineId === selectedMachine.id).slice(0, 5)
+    : [];
+
+  const [history, setHistory] = useState<any[]>([]);
+  const [selectedMetric, setSelectedMetric] = useState<string | null>(null);
+  const [showAlarmsModal, setShowAlarmsModal] = useState(false);
+
+  useEffect(() => {
+    if (!selectedMachineId || machines.length === 0) return;
+
+    let active = true;
+    const selected = machines.find((x) => x.id === selectedMachineId) || machines[0];
+
+    const loadHistory = async () => {
+      try {
+        const to = new Date().toISOString();
+        const from = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+        const points = await machinesApi.getMachineHistory(selectedMachineId, {
+          from,
+          to,
+          interval: '5m',
+          aggregation: 'avg',
+        });
+
+        if (!active) return;
+        if (points.length > 0) {
+          setHistory(
+            points.map((p) => ({
+              timestamp: String((p as any).timestamp || (p as any).ts || new Date().toISOString()),
+              oee: Number((p as any).oee ?? selected.oee),
+              availability: Number((p as any).availability ?? selected.availability),
+              performance: Number((p as any).performance ?? selected.performance),
+              quality: Number((p as any).quality ?? selected.quality),
+              powerKw: Number((p as any).powerKw ?? selected.powerKw),
+              temperatureC: Number((p as any).temperatureC ?? selected.temperatureC ?? 0),
+              vibrationPct: Number((p as any).vibrationMmS ?? (p as any).vibrationPct ?? selected.vibrationPct ?? 0),
+              spindleSpeedRpm: Number((p as any).spindleSpeedRpm ?? selected.spindleSpeedRpm ?? 0),
+              feedRateMmMin: Number((p as any).feedRateMmMin ?? selected.feedRateMmMin ?? 0),
+              cuttingSpeedMMin: selected.cuttingSpeedMMin,
+              depthOfCutMm: selected.depthOfCutMm,
+              feedPerToothMm: selected.feedPerToothMm,
+              widthOfCutMm: selected.widthOfCutMm,
+              materialRemovalRateCm3Min: selected.materialRemovalRateCm3Min,
+              cycleTimeSec: Number((p as any).cycleTimeSec ?? selected.cycleTimeSec),
+            })),
+          );
+          return;
+        }
+      } catch {
+        // Fall back to seeded local timeline when history API is unavailable.
+      }
+
+      if (!active) return;
+      const initData = Array.from({ length: 30 }).map((_, i) => ({
+        timestamp: new Date(Date.now() - (29 - i) * 2000).toISOString(),
+        oee: selected.oee + (Math.random() * 4 - 2),
+        availability: selected.availability,
+        performance: selected.performance,
+        quality: selected.quality,
+        powerKw: selected.powerKw + (Math.random() * 2 - 1),
+        temperatureC: selected.temperatureC ? selected.temperatureC + (Math.random() * 2 - 1) : 0,
+        vibrationPct: selected.vibrationPct ? selected.vibrationPct + (Math.random() * 5 - 2.5) : 0,
+        spindleSpeedRpm: selected.spindleSpeedRpm ? selected.spindleSpeedRpm + (Math.random() * 10 - 5) : 0,
+        feedRateMmMin: selected.feedRateMmMin ? selected.feedRateMmMin + (Math.random() * 5 - 2.5) : 0,
+        cuttingSpeedMMin: selected.cuttingSpeedMMin,
+        depthOfCutMm: selected.depthOfCutMm,
+        feedPerToothMm: selected.feedPerToothMm,
+        widthOfCutMm: selected.widthOfCutMm,
+        materialRemovalRateCm3Min: selected.materialRemovalRateCm3Min,
+        cycleTimeSec: selected.cycleTimeSec,
+      }));
+      setHistory(initData);
+    };
+
+    void loadHistory();
+    return () => {
+      active = false;
+    };
+  }, [selectedMachineId, machines]);
+
+  useEffect(() => {
+     setHistory(prev => {
+        if (!selectedMachine) return prev;
+        if (prev.length === 0) return prev;
+        const now = new Date().toISOString();
+        const last = prev[prev.length - 1];
+        if (new Date(now).getTime() - new Date(last.timestamp).getTime() < 1000) return prev;
+        
+        const newPoint = {
+           timestamp: now,
+           oee: selectedMachine.oee,
+           availability: selectedMachine.availability,
+           performance: selectedMachine.performance,
+           quality: selectedMachine.quality,
+           powerKw: selectedMachine.powerKw,
+           temperatureC: selectedMachine.temperatureC || 0,
+           vibrationPct: selectedMachine.vibrationPct || 0,
+           spindleSpeedRpm: selectedMachine.spindleSpeedRpm || 0,
+           feedRateMmMin: selectedMachine.feedRateMmMin || 0,
+           cuttingSpeedMMin: selectedMachine.cuttingSpeedMMin,
+           depthOfCutMm: selectedMachine.depthOfCutMm,
+           feedPerToothMm: selectedMachine.feedPerToothMm,
+           widthOfCutMm: selectedMachine.widthOfCutMm,
+           materialRemovalRateCm3Min: selectedMachine.materialRemovalRateCm3Min,
+           cycleTimeSec: selectedMachine.cycleTimeSec,
+        };
+        const updated = [...prev, newPoint];
+        if (updated.length > 60) updated.shift();
+        return updated;
+     });
+  }, [selectedMachine]);
+
+  const getHistoryWindow = (range: TimeRange) => {
+    const totalMinutes = getTimeRangeConfig(range).totalMinutes;
+    const startTime = Date.now() - totalMinutes * 60 * 1000;
+    return history.filter((point) => new Date(point.timestamp).getTime() >= startTime);
   };
 
-  const goToLive = useCallback(() => {
-    setHistoryRange('1h');
-    setMetricRange('1h');
-    void loadTelemetryHistory();
-  }, [loadTelemetryHistory]);
+  const realtimeHistory = getHistoryWindow(timeRange);
+  const metricHistory = getHistoryWindow(metricRange);
+  const productionTotal = Math.max(1, selectedMachine?.partCount || 0);
+  const goodRatio = ((selectedMachine?.goodCount || 0) / productionTotal) * 100;
+  const ngRatio = ((selectedMachine?.ngCount || 0) / productionTotal) * 100;
 
   if (!selectedMachine) {
     return (
       <div className="card-industrial p-6 text-sm text-industrial-text-secondary">
         {machinesLoading
-          ? selectedLanguage === 'en'
-            ? 'Loading machine detail...'
-            : 'Dang tai chi tiet may...'
-          : selectedLanguage === 'en'
-          ? 'No machine data available.'
-          : 'Khong co du lieu may de hien thi.'}
+          ? (selectedLanguage === 'en' ? 'Loading machine data...' : 'Đang tải dữ liệu máy...')
+          : (selectedLanguage === 'en' ? 'No machine data available.' : 'Không có dữ liệu máy.')}
       </div>
     );
   }
 
+  const oeeChartOptions = {
+    tooltip: { trigger: 'axis', backgroundColor: '#111', borderColor: '#17a2b8', textStyle: { color: '#fff' } },
+    legend: {
+      top: 0,
+      textStyle: { color: '#8fb3d9', fontSize: 10 },
+    },
+    grid: { left: '1%', right: '1%', bottom: '5%', top: '18%', containLabel: false },
+    xAxis: { 
+       type: 'category', 
+       boundaryGap: false,
+       data: realtimeHistory.map(h => formatDateTime(h.timestamp).split(' ')[1] || ''), 
+       axisLabel: { show: false },
+       axisLine: { show: false },
+       axisTick: { show: false },
+       splitLine: { show: true, lineStyle: { color: '#333' } }
+    },
+    yAxis: { 
+       type: 'value', 
+       min: 0, 
+       max: 100,
+       splitLine: { show: true, lineStyle: { color: '#333' } },
+       axisLabel: { show: false },
+       axisLine: { show: false },
+       axisTick: { show: false }
+    },
+    series: [
+      { 
+        name: 'OEE', 
+        type: 'line', 
+        data: realtimeHistory.map(h => h.oee), 
+        itemStyle: { color: '#17a2b8' }, 
+        smooth: false, 
+        symbol: 'none', 
+        lineStyle: { width: 1.5, color: '#17a2b8' },
+        areaStyle: {
+            color: {
+                type: 'linear',
+                x: 0, y: 0, x2: 0, y2: 1,
+                colorStops: [
+                    { offset: 0, color: 'rgba(23, 162, 184, 0.5)' },
+                    { offset: 1, color: 'rgba(23, 162, 184, 0.05)' }
+                ]
+            }
+        }
+      },
+      {
+        name: selectedLanguage === 'en' ? 'Availability' : 'Khả dụng',
+        type: 'line',
+        data: realtimeHistory.map((h) => h.availability),
+        smooth: true,
+        symbol: 'none',
+        lineStyle: { width: 1.4, color: '#22c55e' },
+        itemStyle: { color: '#22c55e' },
+      },
+      {
+        name: selectedLanguage === 'en' ? 'Performance' : 'Hiệu suất',
+        type: 'line',
+        data: realtimeHistory.map((h) => h.performance),
+        smooth: true,
+        symbol: 'none',
+        lineStyle: { width: 1.4, color: '#60a5fa' },
+        itemStyle: { color: '#60a5fa' },
+      },
+      {
+        name: selectedLanguage === 'en' ? 'Quality' : 'Chất lượng',
+        type: 'line',
+        data: realtimeHistory.map((h) => h.quality),
+        smooth: true,
+        symbol: 'none',
+        lineStyle: { width: 1.4, color: '#facc15' },
+        itemStyle: { color: '#facc15' },
+      }
+    ]
+  };
+
+  const getMetricChartOptions = (metricKey: string, color: string, name: string) => ({
+      tooltip: { trigger: 'axis', backgroundColor: '#111', borderColor: color, textStyle: { color: '#fff' } },
+      grid: { left: '1%', right: '1%', bottom: '5%', top: '5%', containLabel: false },
+      xAxis: { 
+         type: 'category', 
+         boundaryGap: false,
+         data: metricHistory.map(h => formatDateTime(h.timestamp).split(' ')[1] || ''), 
+         axisLabel: { show: false },
+         axisLine: { show: false },
+         axisTick: { show: false },
+         splitLine: { show: true, lineStyle: { color: '#333' } }
+      },
+      yAxis: { 
+         type: 'value', 
+         min: 'dataMin',
+         splitLine: { show: true, lineStyle: { color: '#333' } },
+         axisLabel: { show: false },
+         axisLine: { show: false },
+         axisTick: { show: false }
+      },
+      series: [
+        { 
+           name: name, 
+           type: 'line', 
+           data: metricHistory.map(h => h[metricKey as keyof typeof h] || 0), 
+           itemStyle: { color: color }, 
+           smooth: false, 
+           symbol: 'none', 
+           lineStyle: { width: 1.5 },
+           areaStyle: { 
+               opacity: 0.8,
+               color: {
+                   type: 'linear',
+                   x: 0, y: 0, x2: 0, y2: 1,
+                   colorStops: [
+                       { offset: 0, color: color.replace(')', ', 0.5)').replace('rgb', 'rgba') },
+                       { offset: 1, color: color.replace(')', ', 0.05)').replace('rgb', 'rgba') }
+                   ]
+               }
+           }
+        }
+      ]
+  });
+
+  const allMetrics = [
+      { key: 'powerKw', label: selectedLanguage === 'en' ? 'Power' : 'Điện năng', unit: 'kW', color: 'rgb(23, 162, 184)', value: selectedMachine.powerKw },
+      { key: 'cycleTimeSec', label: messages.machine.cycleTime || 'Cycle Time', unit: 's', color: 'rgb(23, 162, 184)', value: selectedMachine.cycleTimeSec },
+      ...(selectedMachine.spindleSpeedRpm !== undefined ? [{ key: 'spindleSpeedRpm', label: selectedLanguage === 'en' ? 'Spindle Speed' : 'Tốc độ trục chính', unit: 'rpm', color: 'rgb(23, 162, 184)', value: selectedMachine.spindleSpeedRpm }] : []),
+      ...(selectedMachine.feedRateMmMin !== undefined ? [{ key: 'feedRateMmMin', label: selectedLanguage === 'en' ? 'Feed Rate' : 'Lượng chạy dao', unit: 'mm/min', color: 'rgb(23, 162, 184)', value: selectedMachine.feedRateMmMin }] : []),
+      ...(selectedMachine.cuttingSpeedMMin !== undefined ? [{ key: 'cuttingSpeedMMin', label: selectedLanguage === 'en' ? 'Cutting Speed' : 'Vận tốc cắt', unit: 'm/min', color: 'rgb(23, 162, 184)', value: selectedMachine.cuttingSpeedMMin }] : []),
+      ...(selectedMachine.depthOfCutMm !== undefined ? [{ key: 'depthOfCutMm', label: selectedLanguage === 'en' ? 'Depth of Cut' : 'Chiều sâu cắt', unit: 'mm', color: 'rgb(23, 162, 184)', value: selectedMachine.depthOfCutMm }] : []),
+      ...(selectedMachine.feedPerToothMm !== undefined ? [{ key: 'feedPerToothMm', label: selectedLanguage === 'en' ? 'Feed per Tooth' : 'Lượng chạy dao răng', unit: 'mm/tooth', color: 'rgb(23, 162, 184)', value: selectedMachine.feedPerToothMm }] : []),
+      ...(selectedMachine.widthOfCutMm !== undefined ? [{ key: 'widthOfCutMm', label: selectedLanguage === 'en' ? 'Width of Cut' : 'Chiều rộng cắt', unit: 'mm', color: 'rgb(23, 162, 184)', value: selectedMachine.widthOfCutMm }] : []),
+      ...(selectedMachine.materialRemovalRateCm3Min !== undefined ? [{ key: 'materialRemovalRateCm3Min', label: selectedLanguage === 'en' ? 'MRR' : 'Tốc độ bóc tách VL', unit: 'cm³/min', color: 'rgb(23, 162, 184)', value: selectedMachine.materialRemovalRateCm3Min }] : []),
+      ...(selectedMachine.temperatureC !== undefined ? [{ key: 'temperatureC', label: messages.machine.temperature || 'Temperature', unit: '°C', color: 'rgb(23, 162, 184)', value: selectedMachine.temperatureC }] : []),
+      ...(selectedMachine.vibrationPct !== undefined ? [{ key: 'vibrationPct', label: messages.machine.vibration || 'Vibration', unit: '%', color: 'rgb(23, 162, 184)', value: selectedMachine.vibrationPct }] : []),
+  ];
+
+  const activeMetricObj = selectedMetric ? allMetrics.find(m => m.key === selectedMetric) : null;
+
   return (
     <div className="space-y-6 animate-fade-in">
-      {(machinesError || detailError || historyError) && (
-        <div className="card-industrial p-3 text-xs border border-industrial-border/20 text-industrial-text-secondary">
-          {selectedLanguage === 'en'
-            ? `Backend unavailable. ${machinesError || detailError || historyError || ''}`
-            : `Backend tam thoi khong phan hoi. ${machinesError || detailError || historyError || ''}`}
-        </div>
-      )}
 
+      {/* Machine Selector */}
       <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
         {machines.map((machine) => (
           <button
             key={machine.id}
             onClick={() => setSelectedMachineId(machine.id)}
-            className={`p-4 rounded-lg border-2 text-left ${selectedMachine.id === machine.id ? 'bg-industrial-border/20 border-industrial-border text-industrial-border' : 'bg-industrial-card border-industrial-border/20 hover:border-industrial-border/50'}`}
+            className={`p-4 rounded-lg border-2 transition-all text-left flex items-start gap-3 ${
+              selectedMachine.id === machine.id
+                ? 'bg-industrial-border/20 border-industrial-border text-industrial-border'
+                : 'bg-industrial-card border-industrial-border/20 hover:border-industrial-border/50'
+            }`}
           >
-            <p className="font-semibold text-sm">{machine.code}</p>
-            <p className="text-xs text-industrial-text-secondary line-clamp-1">{machine.name}</p>
+            <div className="w-8 h-8 rounded-full overflow-hidden shrink-0 border border-industrial-border/30 mt-1">
+              <img src={machine.image} alt={machine.name} className="w-full h-full object-cover" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <div
+                  className="w-2 h-2 rounded-full"
+                  style={{
+                    backgroundColor:
+                      machine.status === 'RUN'
+                        ? '#22c55e'
+                        : machine.status === 'FAULT'
+                        ? '#ef4444'
+                        : '#facc15',
+                  }}
+                ></div>
+                <p className="font-semibold text-sm line-clamp-1">{machine.code}</p>
+              </div>
+              <p className="text-xs text-industrial-text-secondary line-clamp-1">
+                {machine.name}
+              </p>
+            </div>
           </button>
         ))}
       </div>
 
-      <div className="card-industrial p-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+      {/* Selected Machine Detail */}
+      <div className="card-industrial p-4">
+        <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
+            <p className="text-xs uppercase tracking-wider text-industrial-text-secondary">{selectedMachine.code}</p>
             <h2 className="text-xl font-bold text-industrial-text">{selectedMachine.name}</h2>
-            <p className="text-xs text-industrial-text-secondary uppercase">{selectedMachine.code}</p>
+            <div className="flex gap-1 mt-2">
+              <span className="data-layer-badge raw">{selectedLanguage === 'en' ? 'raw telemetry' : 'dữ liệu thô'}</span>
+              <span className="data-layer-badge computed">{selectedLanguage === 'en' ? 'computed kpi' : 'chỉ số tính toán'}</span>
+              <span className="data-layer-badge predicted">{selectedLanguage === 'en' ? 'prediction' : 'dự báo'}</span>
+            </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="px-2 py-1 rounded-full text-xs bg-industrial-card/70 border border-industrial-border/20">{formatMachineType(selectedMachine.type, locale)}</span>
-            <span className="px-2 py-1 rounded-full text-xs bg-industrial-card/70 border border-industrial-border/20">{formatMachineMode(selectedMachine.mode, locale)}</span>
-            <span className={`px-2 py-1 rounded-full text-xs border ${realtime.status === 'live' ? 'bg-industrial-success/10 text-industrial-success border-industrial-success/30' : 'bg-industrial-card/70 text-industrial-text-secondary border-industrial-border/20'}`}>
-              {selectedLanguage === 'en' ? `Realtime: ${realtime.status}` : `Realtime: ${realtime.status}`}
-            </span>
-            <button onClick={goToLive} className="px-2 py-1 rounded-lg text-xs border border-industrial-border/30 bg-industrial-card/50 hover:border-industrial-border/60">
-              <RefreshCw size={12} className="inline-block mr-1" /> {selectedLanguage === 'en' ? 'Go to live' : 'Ve live'}
-            </button>
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-3 w-full md:w-auto">
+            <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg px-3 py-2">
+              <p className="text-[10px] uppercase text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Status' : 'Trạng thái'}</p>
+              <p className={`text-sm font-semibold ${selectedMachine.status === 'FAULT' ? 'text-industrial-error' : selectedMachine.status === 'RUN' ? 'text-industrial-success' : 'text-industrial-info'}`}>{getStatusLabel(selectedMachine.status)}</p>
+            </div>
+            <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg px-3 py-2">
+              <p className="text-[10px] uppercase text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Mode' : 'Chế độ'}</p>
+              <p className="text-sm font-semibold text-industrial-text">{selectedMachine.mode}</p>
+            </div>
+            <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg px-3 py-2">
+              <p className="text-[10px] uppercase text-industrial-text-secondary">OEE</p>
+              <p className="text-sm font-semibold text-industrial-border">{Math.round(selectedMachine.oee)}%</p>
+            </div>
+            <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg px-3 py-2">
+              <p className="text-[10px] uppercase text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Power' : 'Công suất'}</p>
+              <p className="text-sm font-semibold text-industrial-success">{formatNumber(selectedMachine.powerKw, 1)} kW</p>
+            </div>
+            <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg px-3 py-2">
+              <p className="text-[10px] uppercase text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Health' : 'Sức khỏe'}</p>
+              <p className="text-sm font-semibold text-industrial-text">{selectedMachine.machineHealth}%</p>
+            </div>
+            <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg px-3 py-2">
+              <p className="text-[10px] uppercase text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Alarms' : 'Cảnh báo'}</p>
+              <p className={`text-sm font-semibold ${selectedMachine.activeAlarms > 0 ? 'text-industrial-error' : 'text-industrial-success'}`}>{selectedMachine.activeAlarms}</p>
+            </div>
           </div>
-        </div>
-
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
-          <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg p-3"><p className="text-xs text-industrial-text-secondary">OEE</p><p className="text-lg font-bold text-industrial-border">{formatNumber(liveState?.oee ?? selectedMachine.oee, 1)}%</p></div>
-          <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg p-3"><p className="text-xs text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Power' : 'Cong suat'}</p><p className="text-lg font-bold text-industrial-success">{formatNumber(liveState?.powerKw ?? selectedMachine.powerKw, 1)} kW</p></div>
-          <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg p-3"><p className="text-xs text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Temperature' : 'Nhiet do'}</p><p className="text-lg font-bold text-industrial-warning">{formatNumber(liveState?.temperatureC ?? selectedMachine.temperatureC ?? 0, 1)} C</p></div>
-          <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg p-3"><p className="text-xs text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Vibration' : 'Do rung'}</p><p className="text-lg font-bold text-industrial-info">{formatNumber(liveState?.vibrationPct ?? selectedMachine.vibrationPct ?? 0, 1)}%</p></div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-        <div className="card-industrial p-6">
-          <div className="flex items-center justify-between gap-3 mb-4">
-            <h3 className="panel-title"><Activity size={16} /> {(messages.machineDetail as any).realtimeOeeAnalytics || 'Phan tich OEE thoi gian thuc'}</h3>
-            <TimeRangeSelector value={historyRange} onChange={setHistoryRange} showLabel={false} />
-          </div>
-          <div className="h-72"><ReactECharts option={oeeChartOption} style={{ height: '100%', width: '100%' }} /></div>
-        </div>
-
-        <div className="card-industrial p-6">
-          <div className="flex items-center justify-between gap-3 mb-4">
-            <h3 className="panel-title"><Cpu size={16} /> {(messages.machineDetail as any).parameterMonitoring || 'Giam sat thong so'}</h3>
-            <TimeRangeSelector value={metricRange} onChange={setMetricRange} showLabel={false} />
-          </div>
-          <div className="h-72"><ReactECharts option={metricChartOption} style={{ height: '100%', width: '100%' }} /></div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-        <div className="card-industrial p-6">
-          <h3 className="panel-title mb-4"><Clock size={16} /> {(messages.machineDetail as any).alarmLog || 'Nhat ky canh bao'}</h3>
-          <div className="space-y-2 max-h-72 overflow-y-auto">
-            {alarmHistory.map((event) => (
-              <div key={event.id} className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg p-3">
-                <div className="flex items-center justify-between text-xs text-industrial-text-secondary">
-                  <span>{event.severity.toUpperCase()}</span>
-                  <span>{formatDateTime(event.timestamp)}</span>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Main Info */}
+        <div className="lg:col-span-2 space-y-4">
+          {/* Machine Image & Basic Info */}
+          <div className="card-industrial p-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="relative group overflow-hidden rounded-lg">
+                <img
+                  src={selectedMachine.image}
+                  alt={selectedMachine.name}
+                  className="w-full h-56 object-cover rounded-lg transform group-hover:scale-105 transition-transform duration-500"
+                />
+                <div className="absolute top-2 right-2 px-3 py-1 rounded bg-black/60 backdrop-blur-md border border-white/10 text-xs font-bold text-white uppercase tracking-wider">
+                  {selectedMachine.type}
                 </div>
-                <p className="text-sm font-semibold text-industrial-text mt-1">{selectedLanguage === 'vi' && event.title_vi ? event.title_vi : event.title}</p>
-                <p className="text-xs text-industrial-text-secondary">{selectedLanguage === 'vi' && event.message_vi ? event.message_vi : event.message}</p>
               </div>
-            ))}
+              <div className="space-y-4">
+                <div>
+                  <p className="metric-label">{messages.machine.name}</p>
+                  <p className="text-xl font-semibold text-industrial-text">
+                    {selectedMachine.name}
+                  </p>
+                </div>
+                <div>
+                  <p className="metric-label">{messages.machine.brand || 'Brand'}</p>
+                  <p className="text-md font-semibold text-industrial-text">
+                    {selectedMachine.brand}
+                  </p>
+                </div>
+                <div>
+                  <p className="metric-label">{messages.machine.controller}</p>
+                  <p className="text-sm text-industrial-text">{selectedMachine.controller}</p>
+                </div>
+                <div>
+                  <p className="metric-label">{messages.machine.status}</p>
+                  <div className="flex items-center gap-2 mt-1">
+                    <div
+                      className="w-3 h-3 rounded-full animate-pulse"
+                      style={{
+                        backgroundColor:
+                          selectedMachine.status === 'RUN'
+                            ? '#22c55e'
+                            : selectedMachine.status === 'FAULT'
+                            ? '#ef4444'
+                            : '#60a5fa',
+                      }}
+                    ></div>
+                    <p className="text-sm font-semibold text-industrial-text">
+                      {selectedMachine.status === 'RUN' && (messages.machine.running || 'Đang Chạy')}
+                      {selectedMachine.status === 'FAULT' && (messages.machine.fault || 'Trục trặc')}
+                      {selectedMachine.status === 'IDLE' && (messages.machine.idle || 'Đang chờ')}
+                      {selectedMachine.status === 'STOP' && (messages.machine.stopped || 'Dừng')}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-industrial-border/20">
+                  <p className="metric-label mb-2">{selectedLanguage === 'en' ? 'Data Layers' : 'Lớp dữ liệu'}</p>
+                  <div className="flex gap-1">
+                    <span className="data-layer-badge raw">{selectedLanguage === 'en' ? 'raw telemetry' : 'dữ liệu thô'}</span>
+                    <span className="data-layer-badge computed">{selectedLanguage === 'en' ? 'computed kpi' : 'chỉ số tính toán'}</span>
+                    <span className="data-layer-badge predicted">{selectedLanguage === 'en' ? 'prediction' : 'dự báo'}</span>
+                  </div>
+                </div>
+
+                <div>
+                  <p className="metric-label mb-2">{selectedLanguage === 'en' ? 'Machine Category' : 'Nhóm máy'}</p>
+                  <span className="px-3 py-1 rounded-full text-xs font-semibold bg-industrial-border/10 border border-industrial-border/30 text-industrial-border uppercase tracking-wider">
+                    {selectedMachine.category}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="card-industrial p-6">
+            <h3 className="panel-title mb-4">{selectedLanguage === 'en' ? 'Type-Aware Operation Panels' : 'Bảng vận hành theo loại máy'}</h3>
+
+            {selectedMachine.category === 'robot_only' && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg p-4">
+                  <p className="text-xs uppercase text-industrial-text-secondary mb-2">{selectedLanguage === 'en' ? 'Robot Zone' : 'Khu vực robot'}</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Program' : 'Chương trình'}: {selectedMachine.rawTelemetry?.programName || selectedMachine.currentProgram}</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Mode' : 'Chế độ'}: {selectedMachine.rawTelemetry?.mode || selectedMachine.mode}</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Servo load' : 'Tải servo'}: {formatNumber(selectedMachine.rawTelemetry?.servoLoadPct ?? selectedMachine.servoLoadPct ?? 0, 0)}%</p>
+                </div>
+                <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg p-4">
+                  <p className="text-xs uppercase text-industrial-text-secondary mb-2">{selectedLanguage === 'en' ? 'Cell Handshake' : 'Đồng bộ cell'}</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Ready/Busy' : 'Sẵn sàng/Bận'}: {selectedMachine.status === 'RUN' ? 'READY' : 'WAIT'}</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Safety interlock' : 'Liên động an toàn'}: {selectedMachine.status === 'FAULT' ? 'TRIPPED' : 'OK'}</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Energy' : 'Năng lượng'}: {formatNumber(selectedMachine.rawTelemetry?.powerKw ?? selectedMachine.powerKw, 1)} kW</p>
+                </div>
+              </div>
+            )}
+
+            {selectedMachine.category === 'cnc_machine' && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg p-4">
+                  <p className="text-xs uppercase text-industrial-text-secondary mb-2">{selectedLanguage === 'en' ? 'Machining Process' : 'Quá trình gia công'}</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Spindle' : 'Trục chính'}: {selectedMachine.rawTelemetry?.spindleRpm ?? selectedMachine.spindleSpeedRpm ?? 0} rpm</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Feed' : 'Lượng chạy dao'}: {selectedMachine.rawTelemetry?.feedRateMmMin ?? selectedMachine.feedRateMmMin ?? 0} mm/min</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Cycle' : 'Chu kỳ'}: {selectedMachine.cycleTimeSec}s</p>
+                </div>
+                <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg p-4">
+                  <p className="text-xs uppercase text-industrial-text-secondary mb-2">{selectedLanguage === 'en' ? 'Condition Monitoring' : 'Giám sát tình trạng'}</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Temperature' : 'Nhiệt độ'}: {formatNumber(selectedMachine.rawTelemetry?.temperatureC ?? selectedMachine.temperatureC ?? 0, 1)}C</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Vibration' : 'Độ rung'}: {formatNumber(selectedMachine.rawTelemetry?.vibrationPct ?? selectedMachine.vibrationPct ?? 0, 1)}%</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Tool life' : 'Tuổi thọ dao'}: {formatNumber(selectedMachine.predictions?.remainingToolLifePct ?? selectedMachine.toolLifeRemainingPct ?? 0, 0)}%</p>
+                </div>
+              </div>
+            )}
+
+            {selectedMachine.category === 'robot_cnc_cell' && (
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg p-4">
+                  <p className="text-xs uppercase text-industrial-text-secondary mb-2">{selectedLanguage === 'en' ? 'Robot Zone' : 'Khu vực robot'}</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Program' : 'Chương trình'}: {selectedMachine.rawTelemetry?.programName || selectedMachine.currentProgram}</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Servo load' : 'Tải servo'}: {formatNumber(selectedMachine.rawTelemetry?.servoLoadPct ?? selectedMachine.servoLoadPct ?? 0, 0)}%</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Cell state' : 'Trạng thái cell'}: {selectedMachine.rawTelemetry?.state || selectedMachine.status}</p>
+                </div>
+                <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg p-4">
+                  <p className="text-xs uppercase text-industrial-text-secondary mb-2">{selectedLanguage === 'en' ? 'Machining Zone' : 'Khu vực gia công'}</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Spindle' : 'Trục chính'}: {selectedMachine.rawTelemetry?.spindleRpm ?? selectedMachine.spindleSpeedRpm ?? 0} rpm</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Feed' : 'Lượng chạy dao'}: {selectedMachine.rawTelemetry?.feedRateMmMin ?? selectedMachine.feedRateMmMin ?? 0} mm/min</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Quality output' : 'Sản lượng đạt'}: {selectedMachine.goodCount}/{selectedMachine.partCount}</p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Performance Metrics */}
+          <div className="card-industrial p-6">
+            <h3 className="text-industrial-border font-semibold mb-6 flex items-center gap-2">
+              <Cpu size={18} />
+              {messages.machineDetail.parameterMonitoring}
+            </h3>
+            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4">
+              <div className="bg-industrial-darker p-4 rounded-lg border border-industrial-border/10 cursor-pointer hover:bg-industrial-card transition-colors" onClick={() => setSelectedMetric('powerKw')}>
+                 <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Power' : 'Điện'}</p>
+                  <Zap size={16} className="text-industrial-success" />
+                </div>
+                <p className="text-2xl font-bold text-industrial-success">
+                  {formatNumber(selectedMachine.powerKw, 1)} <span className="text-sm font-normal">kW</span>
+                </p>
+              </div>
+
+              <div className="bg-industrial-darker p-4 rounded-lg border border-industrial-border/10 cursor-pointer hover:bg-industrial-card transition-colors" onClick={() => setSelectedMetric('cycleTimeSec')}>
+                 <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm text-industrial-text-secondary">{messages.machine.cycleTime || 'Cycle'}</p>
+                  <Clock size={16} className="text-industrial-info" />
+                </div>
+                <p className="text-2xl font-bold text-industrial-info">
+                  {selectedMachine.cycleTimeSec}<span className="text-sm font-normal">s</span>
+                </p>
+              </div>
+
+              {selectedMachine.spindleSpeedRpm !== undefined && selectedMachine.spindleSpeedRpm > 0 && (
+                <div className="bg-industrial-darker p-4 rounded-lg border border-industrial-border/10 cursor-pointer hover:bg-industrial-card transition-colors" onClick={() => setSelectedMetric('spindleSpeedRpm')}>
+                  <p className="text-sm text-industrial-text-secondary mb-2">{selectedLanguage === 'en' ? 'Spindle Speed' : 'Tốc độ trục chính'}</p>
+                  <p className="text-xl font-bold text-industrial-text">
+                    {selectedMachine.spindleSpeedRpm} <span className="text-xs font-normal">rpm</span>
+                  </p>
+                </div>
+              )}
+
+              {selectedMachine.feedRateMmMin !== undefined && selectedMachine.feedRateMmMin > 0 && (
+                <div className="bg-industrial-darker p-4 rounded-lg border border-industrial-border/10 cursor-pointer hover:bg-industrial-card transition-colors" onClick={() => setSelectedMetric('feedRateMmMin')}>
+                  <p className="text-sm text-industrial-text-secondary mb-2">{selectedLanguage === 'en' ? 'Feed Rate' : 'Lượng chạy dao'}</p>
+                  <p className="text-xl font-bold text-industrial-text">
+                    {selectedMachine.feedRateMmMin} <span className="text-xs font-normal">mm/min</span>
+                  </p>
+                </div>
+              )}
+
+              {selectedMachine.cuttingSpeedMMin !== undefined && selectedMachine.cuttingSpeedMMin > 0 && (
+                <div className="bg-industrial-darker p-4 rounded-lg border border-industrial-border/10 cursor-pointer hover:bg-industrial-card transition-colors" onClick={() => setSelectedMetric('cuttingSpeedMMin')}>
+                  <p className="text-sm text-industrial-text-secondary mb-2">{selectedLanguage === 'en' ? 'Cutting Speed' : 'Vận tốc cắt'}</p>
+                  <p className="text-xl font-bold text-industrial-text">
+                    {selectedMachine.cuttingSpeedMMin} <span className="text-xs font-normal">m/min</span>
+                  </p>
+                </div>
+              )}
+
+              {selectedMachine.materialRemovalRateCm3Min !== undefined && selectedMachine.materialRemovalRateCm3Min > 0 && (
+                <div className="bg-industrial-darker p-4 rounded-lg border border-industrial-border/10 cursor-pointer hover:bg-industrial-card transition-colors" onClick={() => setSelectedMetric('materialRemovalRateCm3Min')}>
+                  <p className="text-sm text-industrial-text-secondary mb-2">{selectedLanguage === 'en' ? 'MRR' : 'Tốc độ bóc tách'}</p>
+                  <p className="text-xl font-bold text-industrial-text">
+                    {selectedMachine.materialRemovalRateCm3Min} <span className="text-xs font-normal">cm³/min</span>
+                  </p>
+                </div>
+              )}
+              
+              {selectedMachine.temperatureC !== undefined && (
+                <div className="bg-industrial-darker p-4 rounded-lg border border-industrial-border/10 cursor-pointer hover:bg-industrial-card transition-colors" onClick={() => setSelectedMetric('temperatureC')}>
+                   <div className="flex items-center justify-between mb-2">
+                    <p className="text-sm text-industrial-text-secondary">{messages.machine.temperature || 'Temp'}</p>
+                    <Thermometer size={16} className={selectedMachine.temperatureC > 70 ? 'text-industrial-error' : 'text-industrial-warning'} />
+                  </div>
+                  <div className="flex items-end gap-2">
+                    <p className={`text-xl font-bold ${selectedMachine.temperatureC > 70 ? 'text-industrial-error animate-pulse' : 'text-industrial-text'}`}>
+                      {formatNumber(selectedMachine.temperatureC, 1)}°C
+                    </p>
+                  </div>
+                  <div className="h-1 w-full bg-industrial-card mt-2 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full rounded-full transition-all duration-500"
+                      style={{ 
+                        width: `${Math.min((selectedMachine.temperatureC / 100) * 100, 100)}%`,
+                        backgroundColor: selectedMachine.temperatureC > 70 ? '#ef4444' : selectedMachine.temperatureC > 50 ? '#facc15' : '#22c55e'
+                      }}
+                    ></div>
+                  </div>
+                </div>
+              )}
+              
+              {selectedMachine.vibrationPct !== undefined && (
+                <div className="bg-industrial-darker p-4 rounded-lg border border-industrial-border/10 cursor-pointer hover:bg-industrial-card transition-colors" onClick={() => setSelectedMetric('vibrationPct')}>
+                   <div className="flex items-center justify-between mb-2">
+                    <p className="text-sm text-industrial-text-secondary">{messages.machine.vibration || 'Vibration'}</p>
+                    <Activity size={16} className="text-industrial-warning" />
+                  </div>
+                  <p className="text-xl font-bold text-industrial-warning">
+                    {formatNumber(selectedMachine.vibrationPct, 1)}%
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* OEE & Production Advanced Panel */}
+          <div className="card-industrial p-6">
+            <h3 className="text-industrial-border font-semibold mb-6 flex items-center gap-2">
+              <BarChart3 size={18} />
+              {selectedLanguage === 'en' ? 'OEE & Production Analytics' : 'Phân tích OEE & Sản lượng'}
+            </h3>
+            
+            <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 mb-6">
+              {/* Main OEE Score */}
+              <div className="xl:col-span-3 bg-industrial-darker/50 p-4 rounded-xl border border-industrial-border/10 flex flex-col items-center justify-center relative">
+                <p className="text-sm font-semibold text-industrial-text-secondary mb-3">OEE KPI</p>
+                <div className="relative w-32 h-32 mb-2">
+                  <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
+                    <circle cx="50" cy="50" r="40" fill="none" stroke="rgba(30, 144, 255, 0.1)" strokeWidth="8" />
+                    <circle cx="50" cy="50" r="40" fill="none" stroke={selectedMachine.oee >= 85 ? "#22c55e" : selectedMachine.oee >= 60 ? "#facc15" : "#ef4444"} strokeWidth="8" strokeDasharray={`${(selectedMachine.oee / 100) * 251.2} 251.2`} strokeLinecap="round" className="transition-all duration-1000" />
+                  </svg>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center">
+                    <p className="text-4xl font-bold text-industrial-text">{selectedMachine.oee}%</p>
+                  </div>
+                </div>
+                <div className="text-center mt-3 flex flex-col items-center">
+                  <p className={`px-4 py-1.5 rounded-full text-xs font-bold ${selectedMachine.oee >= 85 ? "bg-industrial-success/20 text-industrial-success" : selectedMachine.oee >= 60 ? "bg-industrial-warning/20 text-industrial-warning" : "bg-industrial-error/20 text-industrial-error"}`}>
+                    OEE: {selectedMachine.oee}%
+                  </p>
+                </div>
+              </div>
+
+              {/* OEE Components Breakdown */}
+              <div className="xl:col-span-5 space-y-4 flex flex-col justify-center bg-industrial-darker/30 p-5 rounded-xl border border-industrial-border/10">
+                <div>
+                  <div className="flex justify-between mb-1">
+                    <span className="text-sm text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Availability (A)' : 'Khả dụng (A)'}</span>
+                    <span className="text-sm font-bold text-industrial-success">{selectedMachine.availability}%</span>
+                  </div>
+                  <div className="h-2 rounded-full bg-industrial-card border border-industrial-border/10 overflow-hidden shadow-inner">
+                    <div className="h-full bg-industrial-success transition-all duration-500" style={{width: `${selectedMachine.availability}%`}}></div>
+                  </div>
+                </div>
+                <div>
+                  <div className="flex justify-between mb-1">
+                    <span className="text-sm text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Performance (P)' : 'Hiệu suất (P)'}</span>
+                    <span className="text-sm font-bold text-industrial-info">{selectedMachine.performance}%</span>
+                  </div>
+                  <div className="h-2 rounded-full bg-industrial-card border border-industrial-border/10 overflow-hidden shadow-inner">
+                    <div className="h-full bg-industrial-info transition-all duration-500" style={{width: `${selectedMachine.performance}%`}}></div>
+                  </div>
+                </div>
+                <div>
+                  <div className="flex justify-between mb-1">
+                    <span className="text-sm text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Quality (Q)' : 'Chất lượng (Q)'}</span>
+                    <span className="text-sm font-bold text-industrial-warning">{selectedMachine.quality}%</span>
+                  </div>
+                  <div className="h-2 rounded-full bg-industrial-card border border-industrial-border/10 overflow-hidden shadow-inner">
+                    <div className="h-full bg-industrial-warning transition-all duration-500" style={{width: `${selectedMachine.quality}%`}}></div>
+                  </div>
+                </div>
+                <div className="pt-2">
+                  <p className="text-xs text-industrial-text-secondary bg-industrial-bg px-3 py-2 rounded-lg border border-industrial-border/5 inline-block">
+                    <strong className="text-industrial-border">{selectedLanguage === 'en' ? 'Formula' : 'Công thức'}:</strong> OEE = A × P × Q
+                  </p>
+                </div>
+              </div>
+
+              {/* Enhanced Production Stats */}
+              <div className="xl:col-span-4 bg-industrial-darker/50 p-5 rounded-xl border border-industrial-border/10 flex flex-col justify-between">
+                <h4 className="text-sm font-semibold text-industrial-text mb-4 pb-2 border-b border-industrial-border/10 flex items-center justify-between">
+                  {selectedLanguage === 'en' ? 'Production Output' : 'Sản lượng'}
+                  <TrendingUp size={16} className="text-industrial-border" />
+                </h4>
+                <div className="grid grid-cols-2 gap-4 flex-1">
+                  <div className="bg-industrial-card border border-industrial-border/5 rounded-lg p-4 flex flex-col items-center justify-center text-center">
+                      <div className="w-12 h-12 rounded-full bg-industrial-border/10 flex items-center justify-center mb-3 text-industrial-border">
+                         <Package size={24} />
+                      </div>
+                      <span className="text-3xl font-bold font-mono text-industrial-text">{selectedMachine.partCount}</span>
+                      <span className="text-xs text-industrial-text-secondary mt-1">{messages.machine.partCount}</span>
+                  </div>
+                  <div className="bg-industrial-card border border-industrial-error/5 rounded-lg p-4 flex flex-col items-center justify-center text-center">
+                      <div className="w-12 h-12 rounded-full bg-industrial-error/10 flex items-center justify-center mb-3 text-industrial-error">
+                         <AlertTriangle size={24} />
+                      </div>
+                      <span className="text-3xl font-bold font-mono text-industrial-error">{selectedMachine.ngCount}</span>
+                      <span className="text-xs text-industrial-error mt-1">{messages.machine.ngParts || 'NG Parts'}</span>
+                  </div>
+                </div>
+                <div className="mt-4 bg-industrial-bg/40 border border-industrial-border/10 rounded-lg p-3">
+                  <div className="flex justify-between text-xs mb-2">
+                    <span className="text-industrial-success">{selectedLanguage === 'en' ? 'Good Ratio' : 'Tỷ lệ đạt'}: {formatNumber(goodRatio, 1)}%</span>
+                    <span className="text-industrial-error">{selectedLanguage === 'en' ? 'NG Ratio' : 'Tỷ lệ lỗi'}: {formatNumber(ngRatio, 1)}%</span>
+                  </div>
+                  <div className="h-2 rounded-full bg-industrial-card overflow-hidden border border-industrial-border/10">
+                    <div className="h-full bg-industrial-success" style={{ width: `${Math.min(100, goodRatio)}%` }}></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Real-time Validation Chart */}
+            <div className="h-64 mt-2 border-t border-industrial-border/20 pt-6">
+              <div className="flex justify-between items-center mb-3">
+                 <h4 className="text-xs uppercase tracking-wider text-industrial-text-secondary flex items-center gap-2">
+                   <span className="w-2 h-2 rounded-full bg-industrial-error animate-pulse"></span>
+                   {messages.machineDetail.realtimeOeeAnalytics}
+                 </h4>
+                 <TimeRangeSelector value={timeRange} onChange={setTimeRange} showLabel={false} />
+              </div>
+              <div className="bg-[#111] p-1 rounded-lg h-full border border-[#333]">
+                  <ReactECharts option={oeeChartOptions} style={{height: '100%', width: '100%'}} />
+              </div>
+            </div>
           </div>
         </div>
 
-        <div className="card-industrial p-6">
-          <h3 className="panel-title mb-4">{selectedLanguage === 'en' ? 'Downtime history' : 'Lich su dung may'}</h3>
-          <div className="space-y-2 max-h-72 overflow-y-auto">
-            {downtimeHistory.map((row, index) => (
-              <div key={`${String(row.id || index)}-${index}`} className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg p-3">
-                <div className="flex justify-between text-xs text-industrial-text-secondary">
-                  <span>{String(row.reasonCode || row.reasonGroup || 'OTHER')}</span>
-                  <span>{Number(row.durationMin || 0)}m</span>
-                </div>
-                <p className="text-xs text-industrial-text-secondary mt-1">{String(row.startedAt || row.endedAt || '')}</p>
+        {/* Right Sidebar */}
+        <div className="space-y-4">
+          {/* Machine Health */}
+          <div className="card-industrial p-6">
+            <h3 className="text-industrial-border font-semibold mb-4 text-center">
+              {messages.machineDetail.machineHealthScore}
+            </h3>
+            <div className="relative w-40 h-40 mx-auto mb-4">
+              <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
+                <circle
+                  cx="50"
+                  cy="50"
+                  r="40"
+                  fill="none"
+                  stroke="rgba(30, 144, 255, 0.1)"
+                  strokeWidth="8"
+                />
+                <circle
+                  cx="50"
+                  cy="50"
+                  r="40"
+                  fill="none"
+                  stroke={selectedMachine.machineHealth > 70 ? "#22c55e" : selectedMachine.machineHealth > 40 ? "#facc15" : "#ef4444"}
+                  strokeWidth="8"
+                  strokeDasharray={`${(selectedMachine.machineHealth / 100) * 251.2} 251.2`}
+                  strokeLinecap="round"
+                  className="transition-all duration-1000"
+                />
+              </svg>
+              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <p className="text-4xl font-bold text-industrial-text">
+                  {selectedMachine.machineHealth}
+                </p>
               </div>
-            ))}
+            </div>
+            <p className="text-center text-sm font-medium" style={{color: selectedMachine.machineHealth > 70 ? "#22c55e" : selectedMachine.machineHealth > 40 ? "#facc15" : "#ef4444" }}>
+              {/* Sử dụng getHealthScore với messages và selectedLanguage */}
+              {getHealthScore(selectedMachine.machineHealth, selectedLanguage, messages)}
+            </p>
+          </div>
+
+          {/* Maintenance & Alarms */}
+          <div className="card-industrial p-6 space-y-4">
+            <div>
+              <p className="text-sm text-industrial-text-secondary mb-2">
+                {messages.machine.maintenanceDue}
+              </p>
+              <p
+                className={`text-2xl font-bold ${
+                  selectedMachine.maintenanceDueDays <= 7
+                    ? 'text-industrial-error animate-pulse'
+                    : 'text-industrial-warning'
+                }`}
+              >
+                {selectedMachine.maintenanceDueDays} {selectedLanguage === 'en' ? 'days' : 'ngày'}
+              </p>
+            </div>
+            <div className="border-t border-industrial-border/20 pt-4">
+              <p className="text-sm text-industrial-text-secondary mb-2">
+                {messages.machine.activeAlarms}
+              </p>
+              <div className="flex items-center justify-between">
+                <p className={`text-2xl font-bold ${selectedMachine.activeAlarms > 0 ? 'text-industrial-error animate-pulse' : 'text-industrial-success'}`}>
+                  {selectedMachine.activeAlarms}
+                </p>
+                {selectedMachine.activeAlarms > 0 && (
+                  <button 
+                    onClick={() => setShowAlarmsModal(true)}
+                    className="px-3 py-1 bg-industrial-error/10 text-industrial-error border border-industrial-error/30 rounded text-xs hover:bg-industrial-error/30 transition-colors"
+                  >
+                    {selectedLanguage === 'en' ? 'View Details' : 'Xem chi tiết'}
+                  </button>
+                )}
+              </div>
+            </div>
+            {selectedMachine.toolLifeRemainingPct !== undefined && (
+              <div className="border-t border-industrial-border/20 pt-4">
+                <p className="text-sm text-industrial-text-secondary mb-2">
+                  {messages.machine.toolLife}
+                </p>
+                <div className="h-4 rounded-full bg-industrial-card border border-industrial-border/30 overflow-hidden">
+                  <div
+                    className="h-full rounded-full transition-all duration-500"
+                    style={{
+                      width: `${selectedMachine.toolLifeRemainingPct}%`,
+                      backgroundColor: selectedMachine.toolLifeRemainingPct > 30 ? '#1e90ff' : '#ef4444'
+                    }}
+                  ></div>
+                </div>
+                <p className="text-xs text-industrial-text-secondary mt-2 flex justify-between">
+                  <span>{selectedMachine.toolLifeRemainingPct}%</span>
+                  <span>{selectedLanguage === 'en' ? 'Remaining' : 'Còn lại'}</span>
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Recent Events */}
+          <div className="card-industrial p-6">
+            <h3 className="text-industrial-border font-semibold mb-4 text-sm">
+              {messages.machineDetail.eventTimeline || (selectedLanguage === 'en' ? 'Recent Events' : 'Sự kiện gần đây')}
+            </h3>
+            <div className="space-y-3">
+              {machineEvents.length > 0 ? (
+                machineEvents.map((event) => (
+                  <div
+                    key={event.id}
+                    className="p-3 bg-industrial-darker rounded border-l-4 shadow-sm"
+                    style={{
+                      borderColor:
+                        event.severity === 'critical'
+                          ? '#ef4444'
+                          : event.severity === 'warning'
+                          ? '#facc15'
+                          : '#38bdf8',
+                    }}
+                  >
+                    <p className="font-semibold text-industrial-text text-sm">
+                      {event.title}
+                    </p>
+                    <p className="text-xs text-industrial-text-secondary mt-1">
+                      {formatDateTime(event.timestamp)}
+                    </p>
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-industrial-text-secondary text-center py-4 bg-industrial-darker rounded border border-dashed border-industrial-border/30">
+                  {selectedLanguage === 'en' ? 'No recent events' : 'Không có sự kiện gần đây'}
+                </p>
+              )}
+            </div>
           </div>
         </div>
       </div>
 
-      {(detailLoading || historyLoading) && (
-        <div className="text-xs text-industrial-text-secondary text-right">
-          {selectedLanguage === 'en' ? 'Syncing backend data...' : 'Dang dong bo du lieu backend...'}
+      {/* Task Manager Style Modal */}
+      {selectedMetric && activeMetricObj && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setSelectedMetric(null)}>
+          <div className="bg-[#1e1e1e] border border-gray-700/50 rounded-xl shadow-2xl w-[90vw] max-w-5xl h-[70vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+            {/* Modal Header */}
+            <div className="flex justify-between items-center p-4 border-b border-gray-800">
+              <h2 className="text-lg font-semibold text-gray-200 flex items-center gap-2">
+                 <Activity size={18} /> {selectedLanguage === 'en' ? 'Performance' : 'Hiệu suất'}
+              </h2>
+              <button className="text-gray-400 hover:text-white" onClick={() => setSelectedMetric(null)}>
+                 <X size={24} />
+              </button>
+            </div>
+            
+            {/* Modal Body */}
+            <div className="flex flex-1 overflow-hidden">
+               {/* Fixed left sidebar for metrics list */}
+               <div className="w-1/3 border-r border-gray-800 bg-[#181818] overflow-y-auto">
+                  {allMetrics.map(m => (
+                      <div 
+                         key={m.key} 
+                         onClick={() => setSelectedMetric(m.key)}
+                         className={`p-3 border-b border-gray-800/50 cursor-pointer transition-colors flex flex-col gap-1 ${selectedMetric === m.key ? 'bg-[#2d2d2d] border-l-4 border-l-[#17a2b8]' : 'hover:bg-[#252525] border-l-4 border-l-transparent'}`}
+                      >
+                         <div className="flex justify-between text-sm">
+                            <span className="text-gray-300">{m.label}</span>
+                         </div>
+                         <div className="flex justify-between items-end">
+                            <span className="text-xs text-gray-500">{selectedLanguage === 'en' ? 'Utilization' : 'Mức sử dụng'}</span>
+                            <span className="text-lg font-semibold text-gray-100">{formatNumber(m.value, 1)} {m.unit}</span>
+                         </div>
+                      </div>
+                  ))}
+               </div>
+               
+               {/* Main Chart Area */}
+               <div className="flex-1 flex flex-col bg-[#111] p-6">
+                  <div className="flex justify-between items-center mb-4">
+                     <h3 className="text-2xl font-light text-gray-100">{activeMetricObj.label}</h3>
+                     <span className="text-sm font-medium text-gray-300">{formatNumber(activeMetricObj.value, 1)} {activeMetricObj.unit}</span>
+                  </div>
+
+                  <div className="mb-4 flex justify-end">
+                     <TimeRangeSelector value={metricRange} onChange={setMetricRange} showLabel={false} />
+                  </div>
+                  
+                  <div className="flex-1 min-h-0 border border-[#333] relative">
+                     <ReactECharts option={getMetricChartOptions(activeMetricObj.key, activeMetricObj.color, activeMetricObj.label)} style={{height: '100%', width: '100%'}} />
+                  </div>
+                  
+                  <div className="mt-4 grid grid-cols-4 gap-4 text-sm text-gray-400">
+                     <div className="flex flex-col">
+                        <span>{selectedLanguage === 'en' ? 'Current Window' : 'Khung thời gian hiện tại'}</span>
+                        <span className="text-xs mt-1">{selectedLanguage === 'en' ? 'Utilization' : 'Mức sử dụng'}</span>
+                        <span className="text-xl text-gray-200">{formatNumber(activeMetricObj.value, 1)} {activeMetricObj.unit}</span>
+                     </div>
+                     <div className="flex flex-col">
+                        <span>{selectedLanguage === 'en' ? 'Max Recorded' : 'Mức lớn nhất'}</span>
+                        <span className="text-xl text-gray-200">{formatNumber(Math.max(...metricHistory.map(h => Number(h[activeMetricObj.key]) || 0)), 1)}</span>
+                     </div>
+                     <div className="flex flex-col">
+                        <span>{selectedLanguage === 'en' ? 'Average' : 'Trung bình'}</span>
+                        <span className="text-xl text-gray-200">{formatNumber(metricHistory.reduce((a, b) => a + (Number(b[activeMetricObj.key]) || 0), 0) / (metricHistory.length || 1), 1)}</span>
+                     </div>
+                  </div>
+               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Alarms Modal */}
+      {showAlarmsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowAlarmsModal(false)}>
+          <div className="bg-[#1e1e1e] border border-industrial-error/50 rounded-xl shadow-2xl w-[90vw] max-w-2xl max-h-[80vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center p-4 border-b border-industrial-border/20 bg-industrial-error/5">
+              <h2 className="text-lg font-semibold text-industrial-error flex items-center gap-2">
+                 <AlertTriangle size={20} />
+                 {selectedLanguage === 'en' ? 'Active Alerts' : 'Cảnh báo hệ thống'} - {selectedMachine.name}
+              </h2>
+              <button className="text-gray-400 hover:text-white" onClick={() => setShowAlarmsModal(false)}>
+                 <X size={24} />
+              </button>
+            </div>
+            <div className="p-4 overflow-y-auto flex-1 space-y-3 bg-[#111]">
+              {events.filter(e => e.machineId === selectedMachine.id && e.severity !== 'info').map(event => (
+                <div key={event.id} className="p-4 rounded-lg bg-[#181818] border border-industrial-error/30 border-l-4 border-l-industrial-error">
+                  <div className="flex justify-between items-start mb-2">
+                    <h3 className="font-bold text-industrial-text">{event.title}</h3>
+                    <span className="text-xs text-gray-500 font-mono">{formatDateTime(event.timestamp)}</span>
+                  </div>
+                  <p className="text-sm text-gray-300">{event.message}</p>
+                </div>
+              ))}
+              {events.filter(e => e.machineId === selectedMachine.id && e.severity !== 'info').length === 0 && (
+                <p className="text-center text-gray-500 py-8">{selectedLanguage === 'en' ? 'No active clearable alerts' : 'Không có cảnh báo'}</p>
+              )}
+            </div>
+            <div className="p-4 border-t border-industrial-border/20 bg-[#1e1e1e] flex justify-end gap-3">
+               <button onClick={() => setShowAlarmsModal(false)} className="px-4 py-2 rounded border border-gray-600 text-gray-300 hover:bg-gray-800 transition-colors">
+                  {selectedLanguage === 'en' ? 'Close' : 'Đóng'}
+               </button>
+               <button 
+                  onClick={() => {
+                     const ids = events
+                       .filter(e => e.machineId === selectedMachine.id && e.severity !== 'info' && !e.acknowledged)
+                       .map(e => e.id);
+                     ids.forEach(id => acknowledge(id));
+                     setShowAlarmsModal(false);
+                  }} 
+                  className="px-4 py-2 rounded bg-industrial-success/20 border border-industrial-success/50 text-industrial-success hover:bg-industrial-success/40 transition-colors font-medium"
+               >
+                  {selectedLanguage === 'en' ? 'Acknowledge All' : 'Xác nhận toàn bộ'}
+               </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -407,11 +998,7 @@ function MachineDetailContent() {
 
 const MachinesPage = () => {
   return (
-    <Suspense
-      fallback={
-        <div className="card-industrial p-6 text-sm text-industrial-text-secondary">Dang tai trang may...</div>
-      }
-    >
+    <Suspense fallback={<div className="p-8 text-center text-industrial-border animate-pulse">Loading machine details...</div>}>
       <MachineDetailContent />
     </Suspense>
   );
