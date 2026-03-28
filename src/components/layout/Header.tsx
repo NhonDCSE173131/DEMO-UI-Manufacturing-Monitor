@@ -122,8 +122,8 @@ const Header = () => {
           {/* Realtime Clock */}
           <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-industrial-card/50 border border-industrial-border/10 text-industrial-text-secondary">
             <Clock size={14} className="text-industrial-border opacity-70" />
-            <span className="text-sm font-mono font-medium text-industrial-text">{clock.time}</span>
-            <span className="text-xs text-industrial-text-secondary">{clock.date}</span>
+            <span suppressHydrationWarning className="text-sm font-mono font-medium text-industrial-text">{clock.time}</span>
+            <span suppressHydrationWarning className="text-xs text-industrial-text-secondary">{clock.date}</span>
           </div>
 
           {/* Alerts Badge */}

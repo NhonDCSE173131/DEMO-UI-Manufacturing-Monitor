@@ -1,9 +1,10 @@
-'use client';
+"use client";
 
-import { ReactNode, useEffect, useState } from 'react';
-import { useMachineStore } from '@/lib/store';
-import Sidebar from '@/components/layout/Sidebar';
-import Header from '@/components/layout/Header';
+import { ReactNode, useEffect, useState } from "react";
+import { useMachineStore } from "@/lib/store";
+import Sidebar from "@/components/layout/Sidebar";
+import Header from "@/components/layout/Header";
+import { RealtimeProvider } from "@/components/RealtimeProvider";
 
 export function Providers({ children }: { children: ReactNode }) {
   const { sidebarWidth, isSidebarCollapsed } = useMachineStore();
@@ -12,24 +13,28 @@ export function Providers({ children }: { children: ReactNode }) {
   useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth < 768);
     handleResize();
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
   }, []);
 
   // Remove transition CSS class on providers dynamically during resize to stop layout lagging
-  const isResizingClass = typeof document !== 'undefined' && document.body.style.userSelect === 'none' ? '' : 'transition-all duration-300';
+  const isResizingClass =
+    typeof document !== "undefined" && document.body.style.userSelect === "none"
+      ? ""
+      : "transition-all duration-300";
 
   return (
     <div className="min-h-screen bg-industrial-bg text-industrial-text">
+      <RealtimeProvider />
       <Sidebar />
-      <div 
+      <div
         className={`${isResizingClass} ml-0`}
-        style={{ marginLeft: isMobile ? 0 : (isSidebarCollapsed ? 80 : sidebarWidth) }}
+        style={{
+          marginLeft: isMobile ? 0 : isSidebarCollapsed ? 80 : sidebarWidth,
+        }}
       >
         <Header />
-        <main className="p-4 md:p-6 bg-industrial-bg">
-          {children}
-        </main>
+        <main className="p-4 md:p-6 bg-industrial-bg">{children}</main>
       </div>
     </div>
   );
