@@ -1,10 +1,11 @@
 'use client';
 
 import { useMachineStore } from '@/lib/store';
+import { useRealtimeStore } from '@/lib/realtime-store';
 import { useMachinesData } from '@/hooks/useMachinesData';
 import { useAlarmsData } from '@/hooks/useAlarmsData';
 import { formatDateTime, getSeverityBgColor, getSeverityBorderColor } from '@/lib/utils';
-import { AlertTriangle, AlertCircle, Info } from 'lucide-react';
+import { AlertTriangle, AlertCircle, Info, Wifi, WifiOff, Radio } from 'lucide-react';
 import ReactECharts from 'echarts-for-react';
 import enMessages from '@/locales/en.json';
 import viMessages from '@/locales/vi.json';
@@ -14,13 +15,17 @@ import { getDowntimeUnitLabel, getTimeRangeConfig, normalizeDowntimeMinutes } fr
 
 const AlarmPage = () => {
   const { selectedLanguage } = useMachineStore();
+  const { connectionStatus, realtimeAlarmEvents, lastMessageAt } = useRealtimeStore();
   const { machines, loading: machinesLoading, error: machinesError } = useMachinesData();
-  const { events, loading: alarmsLoading, error: alarmsError } = useAlarmsData();
+  const { events, loading: alarmsLoading, error: alarmsError, acknowledge } = useAlarmsData();
   const [severityFilter, setSeverityFilter] = useState<'all' | 'critical' | 'warning' | 'info'>('all');
   const [machineFilter, setMachineFilter] = useState<'all' | string>('all');
   const [timeRange, setTimeRange] = useState<'all' | '1h' | '8h' | '24h'>('24h');
   const [timelineRange, setTimelineRange] = useState<TimeRange>('1h');
   const [paretoRange, setParetoRange] = useState<TimeRange>('1h');
+
+  const isRealtimeLive = connectionStatus === 'live';
+  const realtimeEventCount = realtimeAlarmEvents.length;
 
   const filteredEvents = useMemo(() => {
     const now = Date.now();
@@ -140,6 +145,7 @@ const AlarmPage = () => {
 
   return (
     <div className="space-y-6 animate-fade-in">
+      {/* Loading / Error banner */}
       {(machinesLoading || alarmsLoading || machinesError || alarmsError) && (
         <div className="card-industrial p-3 text-xs border border-industrial-border/20 text-industrial-text-secondary">
           {machinesLoading || alarmsLoading
@@ -147,6 +153,42 @@ const AlarmPage = () => {
             : `${selectedLanguage === 'en' ? 'Backend unavailable. Showing local fallback.' : 'Backend tạm thời không phản hồi. Đang hiển thị dữ liệu dự phòng.'} ${machinesError || alarmsError || ''}`}
         </div>
       )}
+
+      {/* Realtime connection status for alarms */}
+      <div className={`card-industrial p-3 flex items-center justify-between border ${
+        isRealtimeLive
+          ? 'border-industrial-success/30 bg-industrial-success/5'
+          : connectionStatus === 'connecting' || connectionStatus === 'degraded'
+          ? 'border-industrial-warning/30 bg-industrial-warning/5'
+          : 'border-industrial-error/30 bg-industrial-error/5'
+      }`}>
+        <div className="flex items-center gap-2">
+          {isRealtimeLive ? (
+            <Radio size={14} className="text-industrial-success animate-pulse" />
+          ) : connectionStatus === 'connecting' || connectionStatus === 'degraded' ? (
+            <Wifi size={14} className="text-industrial-warning" />
+          ) : (
+            <WifiOff size={14} className="text-industrial-error" />
+          )}
+          <span className="text-xs font-medium">
+            {isRealtimeLive
+              ? (selectedLanguage === 'en' ? 'Alarms Live — receiving realtime events' : 'Cảnh báo trực tiếp — đang nhận sự kiện realtime')
+              : connectionStatus === 'connecting' || connectionStatus === 'degraded'
+              ? (selectedLanguage === 'en' ? 'Reconnecting to alarm stream...' : 'Đang kết nối lại luồng cảnh báo...')
+              : (selectedLanguage === 'en' ? 'Alarm stream offline — showing cached data' : 'Luồng cảnh báo mất kết nối — hiển thị dữ liệu đã lưu')}
+          </span>
+        </div>
+        <div className="flex items-center gap-3 text-xs text-industrial-text-secondary">
+          {realtimeEventCount > 0 && (
+            <span className="px-2 py-0.5 rounded-full bg-industrial-border/20 text-industrial-border text-[10px] font-semibold">
+              {realtimeEventCount} {selectedLanguage === 'en' ? 'live events' : 'sự kiện live'}
+            </span>
+          )}
+          {lastMessageAt && (
+            <span>{selectedLanguage === 'en' ? 'Last: ' : 'Cuối: '}{new Date(lastMessageAt).toLocaleTimeString()}</span>
+          )}
+        </div>
+      </div>
 
       <div className="card-industrial p-4">
         <div className="flex flex-wrap gap-2">
@@ -245,7 +287,15 @@ const AlarmPage = () => {
               <div key={`critical-${event.id}`} className="p-3 rounded-lg border border-industrial-error/30 bg-industrial-darker/50">
                 <div className="flex justify-between items-center mb-1">
                   <p className="text-sm font-semibold text-industrial-text">{selectedLanguage === 'vi' && event.title_vi ? event.title_vi : event.title}</p>
-                  <span className="text-xs text-industrial-error">{selectedLanguage === 'en' ? 'UNACK' : 'CHƯA XN'}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-industrial-error">{selectedLanguage === 'en' ? 'UNACK' : 'CHƯA XN'}</span>
+                    <button
+                      onClick={() => acknowledge(event.id)}
+                      className="text-[10px] px-2 py-0.5 rounded bg-industrial-error/20 border border-industrial-error/30 text-industrial-error hover:bg-industrial-error/30 transition-colors"
+                    >
+                      {selectedLanguage === 'en' ? 'ACK' : 'Xác nhận'}
+                    </button>
+                  </div>
                 </div>
                 <p className="text-xs text-industrial-text-secondary">{machines.find((machine) => machine.id === event.machineId)?.name || event.machineId}</p>
                 <p className="text-xs text-industrial-text-secondary mt-1">{event.stopReasonCode || (selectedLanguage === 'vi' && event.cause_vi ? event.cause_vi : event.cause) || 'UNKNOWN'}</p>
@@ -257,6 +307,24 @@ const AlarmPage = () => {
 
       {/* Events by Machine */}
       <div className="space-y-4">
+        {Object.keys(groupedEvents).length === 0 && !alarmsLoading && (
+          <div className="card-industrial p-8 text-center">
+            <Info size={32} className="text-industrial-text-secondary mx-auto mb-3 opacity-50" />
+            <p className="text-sm text-industrial-text-secondary">
+              {selectedLanguage === 'en'
+                ? 'No alarm events found for the selected filters.'
+                : 'Không tìm thấy sự kiện cảnh báo cho bộ lọc đã chọn.'}
+            </p>
+            {!isRealtimeLive && (
+              <p className="text-xs text-industrial-warning mt-2">
+                {selectedLanguage === 'en'
+                  ? 'Realtime stream is not connected — new alarms will not appear until connection is restored.'
+                  : 'Luồng realtime chưa kết nối — cảnh báo mới sẽ không hiện cho đến khi kết nối được khôi phục.'}
+              </p>
+            )}
+          </div>
+        )}
+
         {Object.entries(groupedEvents).map(([machineName, machineEvents]: any) => {
           const machine = machines.find((m) => m.name === machineName);
           return (
@@ -268,6 +336,9 @@ const AlarmPage = () => {
                   </div>
                 )}
                 <h3 className="text-industrial-border font-semibold text-lg">{machineName}</h3>
+                <span className="text-xs text-industrial-text-secondary ml-auto">
+                  {machineEvents.length} {selectedLanguage === 'en' ? 'events' : 'sự kiện'}
+                </span>
               </div>
               <div className="space-y-3">
                 {machineEvents.slice(0, 8).map((event: any) => (
@@ -312,13 +383,21 @@ const AlarmPage = () => {
                           )}
                           {event.acknowledged !== undefined && (
                             <p className="text-industrial-text-secondary bg-industrial-dark/50 px-2 py-1 rounded border border-industrial-border/10">
-                              <strong className="text-industrial-text">{selectedLanguage === 'en' ? 'Ack' : 'Da xac nhan'}:</strong>{' '}
+                              <strong className="text-industrial-text">{selectedLanguage === 'en' ? 'Ack' : 'Xác nhận'}:</strong>{' '}
                               {event.acknowledged
-                                ? event.acknowledgedBy || (selectedLanguage === 'en' ? 'Yes' : 'Co')
+                                ? event.acknowledgedBy || (selectedLanguage === 'en' ? 'Yes' : 'Đã XN')
                                 : selectedLanguage === 'en'
                                 ? 'No'
                                 : 'Chưa'}
                             </p>
+                          )}
+                          {!event.acknowledged && (
+                            <button
+                              onClick={() => acknowledge(event.id)}
+                              className="px-2 py-1 rounded bg-industrial-border/10 border border-industrial-border/20 text-industrial-border hover:bg-industrial-border/20 transition-colors text-xs"
+                            >
+                              {selectedLanguage === 'en' ? 'Acknowledge' : 'Xác nhận'}
+                            </button>
                           )}
                         </div>
                       </div>

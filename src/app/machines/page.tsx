@@ -15,6 +15,7 @@ import enMessages from '@/locales/en.json';
 import viMessages from '@/locales/vi.json';
 import { TimeRangeSelector, TimeRange } from '@/components/TimeRangeSelector';
 import { getTimeRangeConfig } from '@/lib/time-range-config';
+import { useRealtimeStore } from '@/lib/realtime-store';
 
 const getHistoryInterval = (totalMinutes: number): MachineHistoryQuery['interval'] => {
   if (totalMinutes <= 1) return 'raw';
@@ -854,7 +855,7 @@ function MachineDetailContent() {
                 {messages.machine.activeAlarms}
               </p>
               <div className="flex items-center justify-between">
-                <p className={`text-2xl font-bold ${selectedMachine.activeAlarms > 0 ? 'text-industrial-error animate-pulse' : 'text-industrial-success'}`}>
+                <p className={`text-2xl font-bold ${selectedMachine.activeAlarms > 0 ? 'text-industrial-error' : 'text-industrial-success'}`}>
                   {selectedMachine.activeAlarms}
                 </p>
                 {selectedMachine.activeAlarms > 0 && (

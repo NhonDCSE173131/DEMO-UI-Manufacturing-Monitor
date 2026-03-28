@@ -36,10 +36,18 @@ export const useMachinesData = () => {
     setLoading(true);
     setError(null);
     try {
-      const apiMachines = await machinesApi.getMachines();
+      const [apiMachines, apiSnapshots] = await Promise.all([
+        machinesApi.getMachines(),
+        machinesApi.getMachineSnapshots().catch(() => []),
+      ]);
+      const snapshotsById = new Map(apiSnapshots.map((machine) => [machine.id, machine]));
+      const mergedMachines = apiMachines.map((machine) => ({
+        ...machine,
+        ...(snapshotsById.get(machine.id) || {}),
+      }));
       const overrides = loadMachineImageOverrides();
       setImageOverrides(overrides);
-      setMachines(applyMachineImageOverrides(apiMachines, overrides));
+      setMachines(applyMachineImageOverrides(mergedMachines, overrides));
       setEvents([]);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Khong tai duoc du lieu may');

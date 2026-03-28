@@ -27,6 +27,11 @@ export const machinesApi = {
     return data.map(mapApiMachineToUi);
   },
 
+  async getMachineSnapshots(): Promise<Machine[]> {
+    const data = await apiClient.get<Array<Partial<Machine> & Record<string, unknown>>>('/api/v1/machines/snapshots');
+    return data.map(mapApiMachineToUi);
+  },
+
   async getMachineDetail(machineId: string): Promise<Machine> {
     const data = await apiClient.get<Partial<Machine> & Record<string, unknown>>(`/api/v1/machines/${machineId}`);
     return mapApiMachineToUi(data);

@@ -1,6 +1,7 @@
 'use client';
 
 import { useMachineStore } from '@/lib/store';
+import { useRealtimeStore } from '@/lib/realtime-store';
 import { useMachinesData } from '@/hooks/useMachinesData';
 import { useEnergyAnalytics } from '@/hooks/useEnergyAnalytics';
 import { formatNumber } from '@/lib/utils';
@@ -26,6 +27,7 @@ const toAnalyticsQuery = (range: TimeRange, selectedAreaFilter: string, selected
 
 const EnergyPage = () => {
   const { selectedLanguage, selectedAreaFilter, selectedStatusFilter } = useMachineStore();
+  const { connectionStatus } = useRealtimeStore();
   const { machines, loading: machinesLoading, error: machinesError } = useMachinesData();
   const messages = selectedLanguage === 'en' ? enMessages : viMessages;
   const [distributionRange, setDistributionRange] = useState<TimeRange>('1h');

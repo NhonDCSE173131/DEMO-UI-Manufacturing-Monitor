@@ -16,14 +16,18 @@ import {
   Cpu,
   ShieldAlert,
   Activity,
+  Wifi,
+  WifiOff,
 } from 'lucide-react';
 import { useMachineStore } from '@/lib/store';
+import { useRealtimeStore } from '@/lib/realtime-store';
 import enMessages from '@/locales/en.json';
 import viMessages from '@/locales/vi.json';
 
 const Sidebar = () => {
   const [isOpen, setIsOpen] = useState(false);
   const { selectedLanguage, isSidebarCollapsed, toggleSidebar, sidebarWidth, setSidebarWidth } = useMachineStore();
+  const { connectionStatus, lastMessageAt, reconnectCount } = useRealtimeStore();
   const messages = selectedLanguage === 'en' ? enMessages : viMessages;
   const isResizing = useRef(false);
   const pathname = usePathname();
@@ -141,16 +145,82 @@ const Sidebar = () => {
         </nav>
 
         {!isSidebarCollapsed && (
-          <div className="p-4 mx-4 mb-6 bg-industrial-card/50 rounded-lg border border-industrial-border/20">
-            <p className="text-xs text-industrial-text-secondary mb-2 whitespace-nowrap">
-              {messages.common.systemStatus}
-            </p>
+          <div className={`p-4 mx-4 mb-6 rounded-lg border ${
+            connectionStatus === 'live'
+              ? 'bg-industrial-success/5 border-industrial-success/20'
+              : connectionStatus === 'connecting' || connectionStatus === 'degraded'
+              ? 'bg-industrial-warning/5 border-industrial-warning/20'
+              : 'bg-industrial-error/5 border-industrial-error/20'
+          }`}>
+            <div className="flex items-center gap-2 mb-1.5">
+              {connectionStatus === 'live' ? (
+                <Wifi size={14} className="text-industrial-success" />
+              ) : connectionStatus === 'connecting' || connectionStatus === 'degraded' ? (
+                <Wifi size={14} className="text-industrial-warning" />
+              ) : (
+                <WifiOff size={14} className="text-industrial-error" />
+              )}
+              <p className="text-xs text-industrial-text-secondary whitespace-nowrap">
+                {messages.common.systemStatus}
+              </p>
+            </div>
             <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-industrial-success animate-pulse"></div>
-              <span className="text-sm text-industrial-success whitespace-nowrap">
-                {messages.common.online}
+              <div
+                className={`w-2 h-2 rounded-full ${
+                  connectionStatus === 'live'
+                    ? 'bg-industrial-success animate-pulse'
+                    : connectionStatus === 'connecting' || connectionStatus === 'degraded'
+                    ? 'bg-industrial-warning animate-pulse'
+                    : 'bg-industrial-error'
+                }`}
+              />
+              <span className={`text-sm font-medium whitespace-nowrap ${
+                connectionStatus === 'live'
+                  ? 'text-industrial-success'
+                  : connectionStatus === 'connecting' || connectionStatus === 'degraded'
+                  ? 'text-industrial-warning'
+                  : 'text-industrial-error'
+              }`}>
+                {connectionStatus === 'live'
+                  ? (selectedLanguage === 'en' ? 'Online' : 'Trực tuyến')
+                  : connectionStatus === 'connecting'
+                  ? (selectedLanguage === 'en' ? 'Connecting...' : 'Đang kết nối...')
+                  : connectionStatus === 'degraded'
+                  ? (selectedLanguage === 'en' ? 'Reconnecting...' : 'Đang kết nối lại...')
+                  : (selectedLanguage === 'en' ? 'Disconnected' : 'Mất kết nối BE')}
               </span>
             </div>
+            <p className="text-[10px] text-industrial-text-secondary mt-1.5 whitespace-nowrap">
+              {selectedLanguage === 'en' ? 'Realtime channel UI ↔ Backend' : 'Kênh realtime giữa UI và Backend'}
+            </p>
+            {lastMessageAt && connectionStatus === 'live' && (
+              <p className="text-[10px] text-industrial-text-secondary mt-0.5 whitespace-nowrap">
+                {selectedLanguage === 'en' ? 'Last: ' : 'Cập nhật: '}
+                {new Date(lastMessageAt).toLocaleTimeString()}
+              </p>
+            )}
+            {reconnectCount > 0 && connectionStatus !== 'live' && (
+              <p className="text-[10px] text-industrial-warning mt-0.5 whitespace-nowrap">
+                {selectedLanguage === 'en' ? `Retry #${reconnectCount}` : `Thử lại lần ${reconnectCount}`}
+              </p>
+            )}
+          </div>
+        )}
+        {isSidebarCollapsed && (
+          <div className="flex justify-center mb-6" title={
+            connectionStatus === 'live'
+              ? (selectedLanguage === 'en' ? 'Online' : 'Trực tuyến')
+              : connectionStatus === 'connecting'
+              ? (selectedLanguage === 'en' ? 'Connecting' : 'Đang kết nối')
+              : (selectedLanguage === 'en' ? 'Disconnected' : 'Mất kết nối')
+          }>
+            <div className={`w-3 h-3 rounded-full ${
+              connectionStatus === 'live'
+                ? 'bg-industrial-success animate-pulse'
+                : connectionStatus === 'connecting' || connectionStatus === 'degraded'
+                ? 'bg-industrial-warning animate-pulse'
+                : 'bg-industrial-error'
+            }`} />
           </div>
         )}
 

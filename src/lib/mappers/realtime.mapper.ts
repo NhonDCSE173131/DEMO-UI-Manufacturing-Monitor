@@ -15,9 +15,9 @@ const toString = (value: unknown): string | undefined => {
 const toStatus = (value: unknown): Machine['status'] | undefined => {
   const raw = toString(value)?.toUpperCase();
   if (!raw) return undefined;
-  if (raw === 'RUN' || raw === 'RUNNING' || raw === 'ONLINE') return 'RUN';
+  if (raw === 'RUN' || raw === 'RUNNING') return 'RUN';
   if (raw === 'IDLE' || raw === 'WAITING') return 'IDLE';
-  if (raw === 'STOP' || raw === 'STOPPED' || raw === 'OFFLINE') return 'STOP';
+  if (raw === 'STOP' || raw === 'STOPPED') return 'STOP';
   if (raw === 'FAULT' || raw === 'ERROR' || raw === 'ALARM') return 'FAULT';
   if (raw === 'MAINT' || raw === 'MAINTENANCE') return 'MAINT';
   return undefined;
@@ -33,7 +33,7 @@ const toMode = (value: unknown): Machine['mode'] | undefined => {
 };
 
 export const mapRealtimeTelemetryPatch = (payload: Record<string, unknown>): Partial<Machine> => {
-  const status = toStatus(payload.status ?? payload.state ?? payload.machineState);
+  const status = toStatus(payload.status ?? payload.machineStatus ?? payload.operationState);
   const mode = toMode(payload.mode ?? payload.operationMode);
   const rawTelemetry = status && mode
     ? {

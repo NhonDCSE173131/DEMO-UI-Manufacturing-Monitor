@@ -1,6 +1,7 @@
 'use client';
 
 import { useMachineStore } from '@/lib/store';
+import { useRealtimeStore } from '@/lib/realtime-store';
 import { useMachinesData } from '@/hooks/useMachinesData';
 import { useAlarmsData } from '@/hooks/useAlarmsData';
 import { useOeeAnalytics } from '@/hooks/useOeeAnalytics';
@@ -33,6 +34,7 @@ const OEEPage = () => {
     selectedAreaFilter,
     selectedStatusFilter,
   } = useMachineStore();
+  const { connectionStatus } = useRealtimeStore();
   const { machines, loading: machinesLoading, error: machinesError } = useMachinesData();
   const { events, loading: alarmsLoading, error: alarmsError } = useAlarmsData();
   const messages = selectedLanguage === 'en' ? enMessages : viMessages;

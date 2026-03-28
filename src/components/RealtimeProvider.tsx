@@ -65,7 +65,6 @@ export function RealtimeProvider() {
       }
       setConnectionStatus(reconnectCountRef.current > 0 ? 'degraded' : 'connecting');
       const url = buildRealtimeStreamUrl({
-        topics: ['telemetry', 'alarm', 'connection'],
         sinceEventId: sinceEventId || undefined,
       });
       try {
@@ -97,26 +96,31 @@ export function RealtimeProvider() {
             const machineId = envelope.machineId || (typeof payload.machineId === 'string' ? payload.machineId : undefined);
             const topic = envelope.topic || envelope.eventName || '';
 
-            if (machineId && (topic === 'telemetry' || topic === 'connection' || String(topic).startsWith('machine-telemetry') || String(topic).startsWith('machine-connection'))) {
-              // Update machine connection state and freshness from payload
-              const connectionState = String(payload.connectionState || payload.state || payload.machineState || 'ONLINE').toUpperCase();
-              if (connectionState) {
+            const isTelemetryTopic = topic === 'telemetry' || String(topic).startsWith('machine-telemetry');
+            const isConnectionTopic = topic === 'connection' || String(topic).startsWith('machine-connection');
+
+            if (machineId && (isTelemetryTopic || isConnectionTopic)) {
+              const connectionStateRaw = payload.connectionState ?? payload.connection_status ?? payload.connection;
+              const connectionState = typeof connectionStateRaw === 'string' ? connectionStateRaw.toUpperCase() : '';
+              if (connectionState === 'ONLINE' || connectionState === 'STALE' || connectionState === 'OFFLINE' || connectionState === 'UNSTABLE') {
                 setMachineConnectionState(machineId, connectionState);
               }
-              
-              const lastSeenTs = String(payload.lastSeenAt || payload.lastSeen || new Date().toISOString());
-              if (lastSeenTs) {
-                setMachineLastSeen(machineId, lastSeenTs);
+
+              const lastSeenTsRaw = payload.lastSeenAt ?? payload.lastSeen;
+              if (typeof lastSeenTsRaw === 'string' && lastSeenTsRaw.trim() !== '') {
+                setMachineLastSeen(machineId, lastSeenTsRaw);
               }
-              
+
               const freshnessSec = toSafeNumber(payload.dataFreshnessSec ?? payload.freshness);
               if (typeof freshnessSec === 'number') {
                 setMachineDataFreshness(machineId, freshnessSec);
               }
-              
+            }
+
+            if (machineId && isTelemetryTopic) {
               const patch = pruneUndefinedPatch(mapRealtimeTelemetryPatch(payload));
               if (Object.keys(patch).length > 0) patchMachineSnapshot(machineId, patch as never);
-              
+
               const ts = String(payload.timestamp || payload.ts || envelope.timestamp || new Date().toISOString());
               const point: TelemetryPoint = {
                 timestamp: ts,
@@ -131,7 +135,22 @@ export function RealtimeProvider() {
                 performance: toSafeNumber(payload.performance),
                 quality: toSafeNumber(payload.quality),
               };
-              appendTelemetryPoint(machineId, point);
+
+              const hasNumericMetric =
+                typeof point.powerKw === 'number' ||
+                typeof point.temperatureC === 'number' ||
+                typeof point.vibrationMmS === 'number' ||
+                typeof point.outputCount === 'number' ||
+                typeof point.goodCount === 'number' ||
+                typeof point.rejectCount === 'number' ||
+                typeof point.oee === 'number' ||
+                typeof point.availability === 'number' ||
+                typeof point.performance === 'number' ||
+                typeof point.quality === 'number';
+
+              if (hasNumericMetric) {
+                appendTelemetryPoint(machineId, point);
+              }
             }
 
             if (topic === 'alarm' || String(topic).startsWith('alarm') || 'severity' in payload || 'title' in payload) {

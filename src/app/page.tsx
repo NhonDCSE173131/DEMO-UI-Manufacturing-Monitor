@@ -1,7 +1,6 @@
 'use client';
 
 import { useMachineStore } from '@/lib/store';
-import { useRealtimeStore } from '@/lib/realtime-store';
 import { useMachinesData } from '@/hooks/useMachinesData';
 import { useAlarmsData } from '@/hooks/useAlarmsData';
 import { useDashboardOverview } from '@/hooks/useDashboardOverview';
@@ -29,7 +28,6 @@ const toAnalyticsQuery = (range: TimeRange) => {
 
 const Dashboard = () => {
   const { selectedLanguage, selectedAreaFilter, selectedStatusFilter } = useMachineStore();
-  const { connectionStatus, lastMessageAt } = useRealtimeStore();
   const { machines, loading: machinesLoading, error: machinesError } = useMachinesData();
   const { events, loading: alarmsLoading, error: alarmsError } = useAlarmsData();
   const messages = selectedLanguage === 'en' ? enMessages : viMessages;
@@ -235,47 +233,6 @@ const Dashboard = () => {
             : `${selectedLanguage === 'en' ? 'Backend unavailable. Showing local fallback.' : 'Backend tạm thời không phản hồi. Đang hiển thị dữ liệu dự phòng.'} ${machinesError || alarmsError || overviewError || energyAnalytics.error || oeeAnalytics.error || ''}`}
         </div>
       )}
-      <div className="card-industrial p-4">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          {/* System Status */}
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-industrial-card/50 border border-industrial-border/20">
-              <div
-                className={`w-2.5 h-2.5 rounded-full animate-pulse ${
-                  connectionStatus === 'live'
-                    ? 'bg-industrial-success'
-                    : connectionStatus === 'connecting'
-                    ? 'bg-industrial-warning'
-                    : 'bg-industrial-error'
-                }`}
-              />
-              <span className="text-xs font-semibold text-industrial-text">
-                {selectedLanguage === 'en' ? 'System Status' : 'Trạng Thái Hệ Thống'}:
-              </span>
-              <span className="text-xs font-medium text-industrial-text-secondary">
-                {connectionStatus === 'live'
-                  ? selectedLanguage === 'en'
-                    ? 'Online'
-                    : 'Trực tuyến'
-                  : connectionStatus === 'connecting'
-                  ? selectedLanguage === 'en'
-                    ? 'Connecting'
-                    : 'Đang kết nối'
-                  : selectedLanguage === 'en'
-                  ? 'Offline'
-                  : 'Mất kết nối'}
-              </span>
-              {lastMessageAt && (
-                <span className="text-xs text-industrial-text-secondary ml-2">
-                  {selectedLanguage === 'en' ? 'Last update: ' : 'Cập nhật: '}
-                  {formatDateTime(lastMessageAt)}
-                </span>
-              )}
-            </div>
-          </div>
-          {/* Spacer */}
-        </div>
-      </div>
 
       {/* Hero KPI Row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

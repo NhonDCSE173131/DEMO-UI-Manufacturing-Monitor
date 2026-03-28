@@ -7,12 +7,23 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Dependencies
 node_modules
+
+# Build output
 dist
 dist-ssr
 *.local
+.next/
+next-build/
+.next-buildcheck/
+out/
 
-# Editor directories and files
+# TypeScript build cache
+tsconfig.tsbuildinfo
+*.tsbuildinfo
+
+# IDE / Editor
 .vscode/*
 !.vscode/extensions.json
 .idea
@@ -22,3 +33,18 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+*.iml
+
+# Junk / error dumps
+error.html
+error.txt
+
+# Markdown docs (không push lên git)
+*.md
+
+# Vite template leftovers (root)
+index.html
+src/counter.js
+src/main.js
+src/style.css
+src/assets/
