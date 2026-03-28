@@ -1,6 +1,7 @@
 'use client';
 
 import { useMachineStore } from '@/lib/store';
+import { useRealtimeStore } from '@/lib/realtime-store';
 import { useMachinesData } from '@/hooks/useMachinesData';
 import { useAlarmsData } from '@/hooks/useAlarmsData';
 import { useDashboardOverview } from '@/hooks/useDashboardOverview';
@@ -28,10 +29,10 @@ const toAnalyticsQuery = (range: TimeRange) => {
 
 const Dashboard = () => {
   const { selectedLanguage, selectedAreaFilter, selectedStatusFilter } = useMachineStore();
+  const { connectionStatus, lastMessageAt } = useRealtimeStore();
   const { machines, loading: machinesLoading, error: machinesError } = useMachinesData();
   const { events, loading: alarmsLoading, error: alarmsError } = useAlarmsData();
   const messages = selectedLanguage === 'en' ? enMessages : viMessages;
-  const [compareMode, setCompareMode] = useState<'shift' | 'day' | 'week'>('day');
   const [oeeRange, setOeeRange] = useState<TimeRange>('1h');
   const [powerRange, setPowerRange] = useState<TimeRange>('1h');
   const [energyRange, setEnergyRange] = useState<TimeRange>('1h');
@@ -51,33 +52,6 @@ const Dashboard = () => {
 
   const displayMachines = filteredMachines.length > 0 ? filteredMachines : machines;
 
-  const exportSnapshot = () => {
-    const payload = {
-      timestamp: new Date().toISOString(),
-      compareMode,
-      oeeRange,
-      powerRange,
-      energyRange,
-      downtimeRange,
-      selectedAreaFilter,
-      selectedStatusFilter,
-      machines: displayMachines.map((machine) => ({
-        id: machine.id,
-        code: machine.code,
-        status: machine.status,
-        powerKw: machine.powerKw,
-        oee: machine.oee,
-        health: machine.machineHealth,
-      })),
-    };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `dashboard-snapshot-${Date.now()}.json`;
-    link.click();
-    URL.revokeObjectURL(url);
-  };
 
   // Calculate metrics
   const totalPower = overview?.plantPowerKw ?? displayMachines.reduce((sum, m) => sum + m.powerKw, 0);
@@ -262,20 +236,44 @@ const Dashboard = () => {
         </div>
       )}
       <div className="card-industrial p-4">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-3 flex-wrap">
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-industrial-text-secondary uppercase tracking-wide">{selectedLanguage === 'en' ? 'Compare mode' : 'Chế độ so sánh'}</span>
-              <select value={compareMode} onChange={(e) => setCompareMode(e.target.value as 'shift' | 'day' | 'week')} className="px-2 py-1.5 rounded bg-industrial-card/70 border border-industrial-border/20 text-xs text-industrial-text outline-none">
-                <option value="shift">{(messages.dashboard as any).shift || (selectedLanguage === 'en' ? 'Shift' : 'Ca')}</option>
-                <option value="day">{(messages.dashboard as any).day || (selectedLanguage === 'en' ? 'Day' : 'Ngày')}</option>
-                <option value="week">{(messages.dashboard as any).week || (selectedLanguage === 'en' ? 'Week' : 'Tuần')}</option>
-              </select>
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          {/* System Status */}
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-industrial-card/50 border border-industrial-border/20">
+              <div
+                className={`w-2.5 h-2.5 rounded-full animate-pulse ${
+                  connectionStatus === 'live'
+                    ? 'bg-industrial-success'
+                    : connectionStatus === 'connecting'
+                    ? 'bg-industrial-warning'
+                    : 'bg-industrial-error'
+                }`}
+              />
+              <span className="text-xs font-semibold text-industrial-text">
+                {selectedLanguage === 'en' ? 'System Status' : 'Trạng Thái Hệ Thống'}:
+              </span>
+              <span className="text-xs font-medium text-industrial-text-secondary">
+                {connectionStatus === 'live'
+                  ? selectedLanguage === 'en'
+                    ? 'Online'
+                    : 'Trực tuyến'
+                  : connectionStatus === 'connecting'
+                  ? selectedLanguage === 'en'
+                    ? 'Connecting'
+                    : 'Đang kết nối'
+                  : selectedLanguage === 'en'
+                  ? 'Offline'
+                  : 'Mất kết nối'}
+              </span>
+              {lastMessageAt && (
+                <span className="text-xs text-industrial-text-secondary ml-2">
+                  {selectedLanguage === 'en' ? 'Last update: ' : 'Cập nhật: '}
+                  {formatDateTime(lastMessageAt)}
+                </span>
+              )}
             </div>
           </div>
-          <button onClick={exportSnapshot} className="px-3 py-1.5 rounded-lg border border-industrial-border/30 bg-industrial-card/60 text-xs text-industrial-text hover:border-industrial-border/60 transition-colors">
-            {(messages.dashboard as any).exportSnapshot || (selectedLanguage === 'en' ? 'Export Snapshot' : 'Xuất ảnh chụp')}
-          </button>
+          {/* Spacer */}
         </div>
       </div>
 

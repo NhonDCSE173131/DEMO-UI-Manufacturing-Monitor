@@ -6,13 +6,23 @@ import { useMachineStore } from '@/lib/store';
 import { useMachinesData } from '@/hooks/useMachinesData';
 import { useAlarmsData } from '@/hooks/useAlarmsData';
 import { machinesApi } from '@/lib/api/machines';
+import { appEnv } from '@/lib/config/env';
 import { formatNumber, formatDateTime, getHealthScore } from '@/lib/utils';
+import type { MachineHistoryQuery } from '@/types/api';
 import { Thermometer, Zap, Activity, Clock, Cpu, BarChart3, TrendingUp, Package, AlertTriangle, X } from 'lucide-react';
 import ReactECharts from 'echarts-for-react';
 import enMessages from '@/locales/en.json';
 import viMessages from '@/locales/vi.json';
 import { TimeRangeSelector, TimeRange } from '@/components/TimeRangeSelector';
 import { getTimeRangeConfig } from '@/lib/time-range-config';
+
+const getHistoryInterval = (totalMinutes: number): MachineHistoryQuery['interval'] => {
+  if (totalMinutes <= 1) return 'raw';
+  if (totalMinutes <= 60) return '1m';
+  if (totalMinutes <= 24 * 60) return '5m';
+  if (totalMinutes <= 7 * 24 * 60) return '30m';
+  return '1h';
+};
 
 function MachineDetailContent() {
   const searchParams = useSearchParams();
@@ -25,7 +35,13 @@ function MachineDetailContent() {
   const [selectedMachineId, setSelectedMachineId] = useState(initialMachine?.id || '');
   const [timeRange, setTimeRange] = useState<TimeRange>('1h');
   const [metricRange, setMetricRange] = useState<TimeRange>('1h');
-  
+
+  useEffect(() => {
+    if (!selectedMachineId && machines.length > 0) {
+      setSelectedMachineId(machines[0].id);
+    }
+  }, [machines, selectedMachineId]);
+
   useEffect(() => {
     if (machineId) {
       const found = machines.find(m => m.id === machineId);
@@ -59,13 +75,18 @@ function MachineDetailContent() {
     const selected = machines.find((x) => x.id === selectedMachineId) || machines[0];
 
     const loadHistory = async () => {
+      const fetchWindowMinutes = Math.max(
+        getTimeRangeConfig(timeRange).totalMinutes,
+        getTimeRangeConfig(metricRange).totalMinutes,
+      );
+
       try {
         const to = new Date().toISOString();
-        const from = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+        const from = new Date(Date.now() - fetchWindowMinutes * 60 * 1000).toISOString();
         const points = await machinesApi.getMachineHistory(selectedMachineId, {
           from,
           to,
-          interval: '5m',
+          interval: getHistoryInterval(fetchWindowMinutes),
           aggregation: 'avg',
         });
 
@@ -94,28 +115,58 @@ function MachineDetailContent() {
           return;
         }
       } catch {
-        // Fall back to seeded local timeline when history API is unavailable.
+        // Keep fallback deterministic in backend mode to avoid fake analytics.
       }
 
       if (!active) return;
-      const initData = Array.from({ length: 30 }).map((_, i) => ({
-        timestamp: new Date(Date.now() - (29 - i) * 2000).toISOString(),
-        oee: selected.oee + (Math.random() * 4 - 2),
-        availability: selected.availability,
-        performance: selected.performance,
-        quality: selected.quality,
-        powerKw: selected.powerKw + (Math.random() * 2 - 1),
-        temperatureC: selected.temperatureC ? selected.temperatureC + (Math.random() * 2 - 1) : 0,
-        vibrationPct: selected.vibrationPct ? selected.vibrationPct + (Math.random() * 5 - 2.5) : 0,
-        spindleSpeedRpm: selected.spindleSpeedRpm ? selected.spindleSpeedRpm + (Math.random() * 10 - 5) : 0,
-        feedRateMmMin: selected.feedRateMmMin ? selected.feedRateMmMin + (Math.random() * 5 - 2.5) : 0,
-        cuttingSpeedMMin: selected.cuttingSpeedMMin,
-        depthOfCutMm: selected.depthOfCutMm,
-        feedPerToothMm: selected.feedPerToothMm,
-        widthOfCutMm: selected.widthOfCutMm,
-        materialRemovalRateCm3Min: selected.materialRemovalRateCm3Min,
-        cycleTimeSec: selected.cycleTimeSec,
-      }));
+      const pointCount = 30;
+      const windowMs = Math.max(1, Math.max(
+        getTimeRangeConfig(timeRange).totalMinutes,
+        getTimeRangeConfig(metricRange).totalMinutes,
+      )) * 60 * 1000;
+      const stepMs = Math.max(1000, Math.floor(windowMs / pointCount));
+      const initData = Array.from({ length: pointCount }).map((_, i) => {
+        const ts = new Date(Date.now() - (pointCount - 1 - i) * stepMs).toISOString();
+        if (appEnv.useMock) {
+          return {
+            timestamp: ts,
+            oee: selected.oee + (Math.random() * 4 - 2),
+            availability: selected.availability,
+            performance: selected.performance,
+            quality: selected.quality,
+            powerKw: selected.powerKw + (Math.random() * 2 - 1),
+            temperatureC: selected.temperatureC ? selected.temperatureC + (Math.random() * 2 - 1) : 0,
+            vibrationPct: selected.vibrationPct ? selected.vibrationPct + (Math.random() * 5 - 2.5) : 0,
+            spindleSpeedRpm: selected.spindleSpeedRpm ? selected.spindleSpeedRpm + (Math.random() * 10 - 5) : 0,
+            feedRateMmMin: selected.feedRateMmMin ? selected.feedRateMmMin + (Math.random() * 5 - 2.5) : 0,
+            cuttingSpeedMMin: selected.cuttingSpeedMMin,
+            depthOfCutMm: selected.depthOfCutMm,
+            feedPerToothMm: selected.feedPerToothMm,
+            widthOfCutMm: selected.widthOfCutMm,
+            materialRemovalRateCm3Min: selected.materialRemovalRateCm3Min,
+            cycleTimeSec: selected.cycleTimeSec,
+          };
+        }
+
+        return {
+          timestamp: ts,
+          oee: selected.oee,
+          availability: selected.availability,
+          performance: selected.performance,
+          quality: selected.quality,
+          powerKw: selected.powerKw,
+          temperatureC: selected.temperatureC || 0,
+          vibrationPct: selected.vibrationPct || 0,
+          spindleSpeedRpm: selected.spindleSpeedRpm || 0,
+          feedRateMmMin: selected.feedRateMmMin || 0,
+          cuttingSpeedMMin: selected.cuttingSpeedMMin,
+          depthOfCutMm: selected.depthOfCutMm,
+          feedPerToothMm: selected.feedPerToothMm,
+          widthOfCutMm: selected.widthOfCutMm,
+          materialRemovalRateCm3Min: selected.materialRemovalRateCm3Min,
+          cycleTimeSec: selected.cycleTimeSec,
+        };
+      });
       setHistory(initData);
     };
 
@@ -123,7 +174,7 @@ function MachineDetailContent() {
     return () => {
       active = false;
     };
-  }, [selectedMachineId, machines]);
+  }, [selectedMachineId, machines, timeRange, metricRange]);
 
   useEffect(() => {
      setHistory(prev => {
@@ -484,8 +535,8 @@ function MachineDetailContent() {
                 </div>
                 <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg p-4">
                   <p className="text-xs uppercase text-industrial-text-secondary mb-2">{selectedLanguage === 'en' ? 'Cell Handshake' : 'Đồng bộ cell'}</p>
-                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Ready/Busy' : 'Sẵn sàng/Bận'}: {selectedMachine.status === 'RUN' ? 'READY' : 'WAIT'}</p>
-                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Safety interlock' : 'Liên động an toàn'}: {selectedMachine.status === 'FAULT' ? 'TRIPPED' : 'OK'}</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Ready/Busy' : 'Sẵn sàng/Bận'}: {selectedMachine.status === 'RUN' ? (selectedLanguage === 'en' ? 'READY' : 'SẴN SÀNG') : (selectedLanguage === 'en' ? 'WAIT' : 'CHỜ')}</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Safety interlock' : 'Liên động an toàn'}: {selectedMachine.status === 'FAULT' ? (selectedLanguage === 'en' ? 'TRIPPED' : 'KÍCH HOẠT') : (selectedLanguage === 'en' ? 'OK' : 'BÌNH THƯỜNG')}</p>
                   <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Energy' : 'Năng lượng'}: {formatNumber(selectedMachine.rawTelemetry?.powerKw ?? selectedMachine.powerKw, 1)} kW</p>
                 </div>
               </div>
@@ -636,7 +687,9 @@ function MachineDetailContent() {
             <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 mb-6">
               {/* Main OEE Score */}
               <div className="xl:col-span-3 bg-industrial-darker/50 p-4 rounded-xl border border-industrial-border/10 flex flex-col items-center justify-center relative">
-                <p className="text-sm font-semibold text-industrial-text-secondary mb-3">OEE KPI</p>
+                <p className="text-sm font-semibold text-industrial-text-secondary mb-3">
+                  {selectedLanguage === 'en' ? 'OEE KPI' : 'Chi so OEE'}
+                </p>
                 <div className="relative w-32 h-32 mb-2">
                   <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
                     <circle cx="50" cy="50" r="40" fill="none" stroke="rgba(30, 144, 255, 0.1)" strokeWidth="8" />
@@ -998,7 +1051,7 @@ function MachineDetailContent() {
 
 const MachinesPage = () => {
   return (
-    <Suspense fallback={<div className="p-8 text-center text-industrial-border animate-pulse">Loading machine details...</div>}>
+    <Suspense fallback={<div className="p-8 text-center text-industrial-border animate-pulse">{viMessages.common.loading}</div>}>
       <MachineDetailContent />
     </Suspense>
   );

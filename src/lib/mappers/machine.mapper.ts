@@ -19,14 +19,12 @@ const normalizeStatus = (value?: string): Machine['status'] => {
   switch ((value || '').toUpperCase()) {
     case 'RUN':
     case 'RUNNING':
-    case 'ONLINE':
       return 'RUN';
     case 'IDLE':
     case 'WAITING':
       return 'IDLE';
     case 'STOP':
     case 'STOPPED':
-    case 'OFFLINE':
       return 'STOP';
     case 'FAULT':
     case 'ALARM':
@@ -80,7 +78,7 @@ export const mapApiMachineToUi = (input: Partial<Machine> & Record<string, unkno
     status,
     mode,
     image: asString(input.image, input.imageUrl, input.thumbnailUrl) || '/img/may.png',
-    // Analytics: giữ undefined nếu thiếu (không fallback về 0)
+    // Giữ default 0 để type-safe, nhưng UI sẽ check với store helpers để biết có dữ liệu thật hay không
     oee: oee ?? 0,
     availability: availability ?? 0,
     performance: performance ?? 0,
@@ -94,7 +92,7 @@ export const mapApiMachineToUi = (input: Partial<Machine> & Record<string, unkno
     goodCount: asNumber(input.goodCount, input.goodParts) ?? 0,
     // Đúng field name: rejectCount là nguồn gốc, ngCount / rejectParts là alias
     ngCount: asNumber(input.ngCount, input.rejectCount, input.rejectParts, input.badParts) ?? 0,
-    // machineHealth: không fallback về 0, để undefined nếu thiếu
+    // machineHealth: để 0 nếu thiếu nhưng UI sẽ kiểm tra
     machineHealth: asNumber(input.machineHealth, input.healthScore, input.maintenanceHealthScore) ?? 0,
     maintenanceDueDays: asNumber(input.maintenanceDueDays, input.daysToMaintenance) ?? 0,
     anomalyScore: asNumber(input.anomalyScore, input.abnormalScore) ?? 0,

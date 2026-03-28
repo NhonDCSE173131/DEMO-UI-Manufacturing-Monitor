@@ -33,7 +33,7 @@ const toMode = (value: unknown): Machine['mode'] | undefined => {
 };
 
 export const mapRealtimeTelemetryPatch = (payload: Record<string, unknown>): Partial<Machine> => {
-  const status = toStatus(payload.status ?? payload.state ?? payload.machineState ?? payload.connectionStatus);
+  const status = toStatus(payload.status ?? payload.state ?? payload.machineState);
   const mode = toMode(payload.mode ?? payload.operationMode);
   const rawTelemetry = status && mode
     ? {

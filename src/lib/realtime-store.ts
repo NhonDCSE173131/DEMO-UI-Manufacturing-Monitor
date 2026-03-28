@@ -52,6 +52,15 @@ interface RealtimeState {
   /** Event store: alarm + downtime events mới nhất */
   realtimeAlarmEvents: MachineEvent[];
 
+  /** Connection state per machine: ONLINE/STALE/OFFLINE/UNSTABLE */
+  connectionStateByMachineId: Record<string, string>;
+
+  /** Last seen timestamp per machine */
+  lastSeenByMachineId: Record<string, string>;
+
+  /** Data freshness in seconds per machine */
+  dataFreshnessByMachineId: Record<string, number>;
+
   // Actions
   setConnectionStatus: (status: ConnectionStatus) => void;
   setLastEventId: (id: string | null) => void;
@@ -59,21 +68,20 @@ interface RealtimeState {
   setConnectionError: (err: string | null) => void;
   incrementReconnectCount: () => void;
   resetReconnectCount: () => void;
-
-  /** Cập nhật snapshot của một máy (patch, không replace toàn bộ) */
   patchMachineSnapshot: (machineId: string, patch: Partial<Machine>) => void;
-
-  /** Append điểm telemetry vào time-series buffer của máy, trim theo MAX_SERIES_POINTS */
   appendTelemetryPoint: (machineId: string, point: TelemetryPoint) => void;
-
-  /** Seed lịch sử ban đầu (từ REST history endpoint) */
   seedTelemetrySeries: (machineId: string, points: TelemetryPoint[]) => void;
-
-  /** Thêm alarm event vào đầu danh sách */
   addAlarmEvent: (event: MachineEvent) => void;
-
-  /** Lấy series của một máy trong khoảng thời gian */
   getSeriesWindow: (machineId: string, fromMs: number) => TelemetryPoint[];
+  setMachineConnectionState: (machineId: string, state: string) => void;
+  setMachineLastSeen: (machineId: string, ts: string) => void;
+  setMachineDataFreshness: (machineId: string, freshnessSec: number) => void;
+
+  /** Helper: kiểm tra máy có đang live không (app live AND máy online AND dữ liệu fresh) */
+  isMachineLive: (machineId: string, freshnessSec?: number) => boolean;
+
+  /** Helper: check xem có nên hiển thị live metrics không */
+  shouldShowLiveMetrics: (machineId: string, freshnessSec?: number) => boolean;
 }
 
 export const useRealtimeStore = create<RealtimeState>()((set, get) => ({
@@ -85,6 +93,9 @@ export const useRealtimeStore = create<RealtimeState>()((set, get) => ({
   snapshotsByMachineId: {},
   telemetrySeriesByMachineId: {},
   realtimeAlarmEvents: [],
+  connectionStateByMachineId: {},
+  lastSeenByMachineId: {},
+  dataFreshnessByMachineId: {},
 
   setConnectionStatus: (status) => set({ connectionStatus: status }),
   setLastEventId: (id) => set({ lastEventId: id }),
@@ -143,5 +154,55 @@ export const useRealtimeStore = create<RealtimeState>()((set, get) => ({
     const series = get().telemetrySeriesByMachineId[machineId] || [];
     return series.filter((p) => new Date(p.timestamp).getTime() >= fromMs);
   },
+
+  isMachineLive: (machineId, freshnessSec = 30) => {
+    const state = get();
+    // App phải ở trạng thái live
+    if (state.connectionStatus !== 'live') return false;
+    // Máy phải online
+    const connState = state.connectionStateByMachineId[machineId];
+    if (connState && connState !== 'ONLINE') return false;
+    // Dữ liệu phải còn fresh
+    const freshness = state.dataFreshnessByMachineId[machineId];
+    if (freshness && freshness > freshnessSec) return false;
+    return true;
+  },
+
+  shouldShowLiveMetrics: (machineId, freshnessSec = 30) => {
+    const state = get();
+    // Nếu app mất kết nối thì không hiện live
+    if (state.connectionStatus !== 'live') return false;
+    // Nếu máy không online thì không hiện live
+    const connState = state.connectionStateByMachineId[machineId];
+    if (connState && connState !== 'ONLINE') return false;
+    // Nếu dữ liệu quá cũ thì không hiện live
+    const freshness = state.dataFreshnessByMachineId[machineId];
+    if (freshness && freshness > freshnessSec) return false;
+    return true;
+  },
+
+  setMachineConnectionState: (machineId, state) =>
+    set((s) => ({
+      connectionStateByMachineId: {
+        ...s.connectionStateByMachineId,
+        [machineId]: state,
+      },
+    })),
+
+  setMachineLastSeen: (machineId, ts) =>
+    set((s) => ({
+      lastSeenByMachineId: {
+        ...s.lastSeenByMachineId,
+        [machineId]: ts,
+      },
+    })),
+
+  setMachineDataFreshness: (machineId, freshnessSec) =>
+    set((s) => ({
+      dataFreshnessByMachineId: {
+        ...s.dataFreshnessByMachineId,
+        [machineId]: freshnessSec,
+      },
+    })),
 }));
 

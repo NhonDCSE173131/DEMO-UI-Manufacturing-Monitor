@@ -2,10 +2,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { alarmsApi } from '@/lib/api/alarms';
 import { appEnv } from '@/lib/config/env';
 import { useMachineStore } from '@/lib/store';
+import { useRealtimeStore } from '@/lib/realtime-store';
 import type { MachineEvent } from '@/types';
 
 export const useAlarmsData = () => {
   const { events: storeEvents } = useMachineStore();
+  const { realtimeAlarmEvents } = useRealtimeStore();
   const [events, setEvents] = useState<MachineEvent[]>(appEnv.useMock ? storeEvents : []);
   const [loading, setLoading] = useState(!appEnv.useMock);
   const [error, setError] = useState<string | null>(null);
@@ -35,7 +37,7 @@ export const useAlarmsData = () => {
     } finally {
       setLoading(false);
     }
-  }, [storeEvents]);
+  }, []);
 
   const acknowledge = useCallback(
     async (alarmId: string, acknowledgedBy = 'ui-operator') => {
@@ -74,6 +76,22 @@ export const useAlarmsData = () => {
       setEvents(storeEvents);
     }
   }, [storeEvents]);
+
+  // Merge realtime events with REST events
+  useEffect(() => {
+    if (!appEnv.useMock && realtimeAlarmEvents.length > 0) {
+      setEvents((prev) => {
+        const merged = [...realtimeAlarmEvents, ...prev];
+        const seen = new Set<string>();
+        const unique = merged.filter((item) => {
+          if (seen.has(item.id)) return false;
+          seen.add(item.id);
+          return true;
+        });
+        return unique.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).slice(0, 150);
+      });
+    }
+  }, [realtimeAlarmEvents]);
 
   const upsertEvent = useCallback((event: MachineEvent) => {
     setEvents((prev) => {

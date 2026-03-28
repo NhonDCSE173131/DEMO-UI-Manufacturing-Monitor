@@ -37,6 +37,9 @@ export function RealtimeProvider() {
     patchMachineSnapshot,
     appendTelemetryPoint,
     addAlarmEvent,
+    setMachineConnectionState,
+    setMachineLastSeen,
+    setMachineDataFreshness,
   } = useRealtimeStore();
 
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -95,8 +98,25 @@ export function RealtimeProvider() {
             const topic = envelope.topic || envelope.eventName || '';
 
             if (machineId && (topic === 'telemetry' || topic === 'connection' || String(topic).startsWith('machine-telemetry') || String(topic).startsWith('machine-connection'))) {
+              // Update machine connection state and freshness from payload
+              const connectionState = String(payload.connectionState || payload.state || payload.machineState || 'ONLINE').toUpperCase();
+              if (connectionState) {
+                setMachineConnectionState(machineId, connectionState);
+              }
+              
+              const lastSeenTs = String(payload.lastSeenAt || payload.lastSeen || new Date().toISOString());
+              if (lastSeenTs) {
+                setMachineLastSeen(machineId, lastSeenTs);
+              }
+              
+              const freshnessSec = toSafeNumber(payload.dataFreshnessSec ?? payload.freshness);
+              if (typeof freshnessSec === 'number') {
+                setMachineDataFreshness(machineId, freshnessSec);
+              }
+              
               const patch = pruneUndefinedPatch(mapRealtimeTelemetryPatch(payload));
               if (Object.keys(patch).length > 0) patchMachineSnapshot(machineId, patch as never);
+              
               const ts = String(payload.timestamp || payload.ts || envelope.timestamp || new Date().toISOString());
               const point: TelemetryPoint = {
                 timestamp: ts,

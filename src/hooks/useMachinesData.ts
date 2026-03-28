@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { machinesApi } from '@/lib/api/machines';
 import { appEnv } from '@/lib/config/env';
 import { useMachineStore } from '@/lib/store';
+import { useRealtimeStore } from '@/lib/realtime-store';
 import type { Machine, MachineEvent } from '@/types';
 import {
   applyMachineImageOverrides,
@@ -15,6 +16,7 @@ import {
 
 export const useMachinesData = () => {
   const { machines: storeMachines, events: storeEvents } = useMachineStore();
+  const { snapshotsByMachineId } = useRealtimeStore();
   const [machines, setMachines] = useState<Machine[]>(
     appEnv.useMock ? applyMachineImageOverrides(storeMachines) : [],
   );
@@ -46,7 +48,7 @@ export const useMachinesData = () => {
     } finally {
       setLoading(false);
     }
-  }, [storeEvents, storeMachines]);
+  }, []);
 
   useEffect(() => {
     load();
@@ -60,6 +62,21 @@ export const useMachinesData = () => {
       setEvents(storeEvents);
     }
   }, [storeEvents, storeMachines]);
+
+  // Apply realtime patches on top of machines
+  useEffect(() => {
+    if (!appEnv.useMock && Object.keys(snapshotsByMachineId).length > 0) {
+      setMachines((prev) =>
+        prev.map((machine) => {
+          const rtPatch = snapshotsByMachineId[machine.id];
+          if (rtPatch) {
+            return { ...machine, ...rtPatch };
+          }
+          return machine;
+        }),
+      );
+    }
+  }, [snapshotsByMachineId]);
 
   useEffect(() => {
     const handleChanged = () => syncImageOverrides();
