@@ -9,13 +9,15 @@ import { machinesApi } from '@/lib/api/machines';
 import { appEnv } from '@/lib/config/env';
 import { formatNumber, formatDateTime, getHealthScore } from '@/lib/utils';
 import type { MachineHistoryQuery } from '@/types/api';
-import { Thermometer, Zap, Activity, Clock, Cpu, BarChart3, TrendingUp, Package, AlertTriangle, X } from 'lucide-react';
+import { Thermometer, Zap, Activity, Clock, Cpu, BarChart3, TrendingUp, Package, AlertTriangle, X, WifiOff, Wifi } from 'lucide-react';
 import ReactECharts from 'echarts-for-react';
 import enMessages from '@/locales/en.json';
 import viMessages from '@/locales/vi.json';
 import { TimeRangeSelector, TimeRange } from '@/components/TimeRangeSelector';
 import { getTimeRangeConfig } from '@/lib/time-range-config';
 import { useRealtimeStore } from '@/lib/realtime-store';
+import { ConnectionBadge, liveMetricValue } from '@/components/ConnectionBadge';
+import type { ConnectionStateType } from '@/types';
 
 const getHistoryInterval = (totalMinutes: number): MachineHistoryQuery['interval'] => {
   if (totalMinutes <= 1) return 'raw';
@@ -31,7 +33,8 @@ function MachineDetailContent() {
   const { selectedLanguage } = useMachineStore();
   const { machines, loading: machinesLoading } = useMachinesData();
   const { events, acknowledge } = useAlarmsData();
-  
+  const { isMachineLive } = useRealtimeStore();
+
   const initialMachine = machines.find(m => m.id === machineId) || machines[0];
   const [selectedMachineId, setSelectedMachineId] = useState(initialMachine?.id || '');
   const [timeRange, setTimeRange] = useState<TimeRange>('1h');
@@ -52,6 +55,13 @@ function MachineDetailContent() {
 
   const selectedMachine = machines.find(m => m.id === selectedMachineId) || machines[0];
   const messages = selectedLanguage === 'en' ? enMessages : viMessages;
+
+  // Helper: hiển thị giá trị live hoặc '--'
+  const connState = selectedMachine?.connectionState as ConnectionStateType | undefined;
+  const isLive = selectedMachine ? isMachineLive(selectedMachine.id) || appEnv.useMock : false;
+  const fmtLive = (val: number | undefined | null, decimals = 1) =>
+    liveMetricValue(val, isLive ? 'ONLINE' : connState, (v) => formatNumber(v, decimals), appEnv.useMock);
+
   const getStatusLabel = (status: string) => {
     if (status === 'RUN') return messages.machine.running;
     if (status === 'FAULT') return messages.machine.fault;
@@ -178,8 +188,11 @@ function MachineDetailContent() {
   }, [selectedMachineId, machines, timeRange, metricRange]);
 
   useEffect(() => {
-     setHistory(prev => {
-        if (!selectedMachine) return prev;
+    // Chỉ append điểm live khi máy đang thực sự online (hoặc mock mode)
+    if (!selectedMachine) return;
+    if (!appEnv.useMock && !isMachineLive(selectedMachine.id)) return;
+
+    setHistory(prev => {
         if (prev.length === 0) return prev;
         const now = new Date().toISOString();
         const last = prev[prev.length - 1];
@@ -207,7 +220,7 @@ function MachineDetailContent() {
         if (updated.length > 60) updated.shift();
         return updated;
      });
-  }, [selectedMachine]);
+  }, [selectedMachine, isMachineLive]);
 
   const getHistoryWindow = (range: TimeRange) => {
     const totalMinutes = getTimeRangeConfig(range).totalMinutes;
@@ -384,10 +397,10 @@ function MachineDetailContent() {
             <div className="w-8 h-8 rounded-full overflow-hidden shrink-0 border border-industrial-border/30 mt-1">
               <img src={machine.image} alt={machine.name} className="w-full h-full object-cover" />
             </div>
-            <div>
+            <div className="min-w-0">
               <div className="flex items-center gap-2 mb-1">
                 <div
-                  className="w-2 h-2 rounded-full"
+                  className="w-2 h-2 rounded-full shrink-0"
                   style={{
                     backgroundColor:
                       machine.status === 'RUN'
@@ -399,9 +412,17 @@ function MachineDetailContent() {
                 ></div>
                 <p className="font-semibold text-sm line-clamp-1">{machine.code}</p>
               </div>
-              <p className="text-xs text-industrial-text-secondary line-clamp-1">
+              <p className="text-xs text-industrial-text-secondary line-clamp-1 mb-1">
                 {machine.name}
               </p>
+              {/* Connection state badge */}
+              {!appEnv.useMock && (
+                <ConnectionBadge
+                  connectionState={machine.connectionState}
+                  lang={selectedLanguage === 'en' ? 'en' : 'vi'}
+                  size="xs"
+                />
+              )}
             </div>
           </button>
         ))}
@@ -413,35 +434,51 @@ function MachineDetailContent() {
           <div>
             <p className="text-xs uppercase tracking-wider text-industrial-text-secondary">{selectedMachine.code}</p>
             <h2 className="text-xl font-bold text-industrial-text">{selectedMachine.name}</h2>
-            <div className="flex gap-1 mt-2">
-              <span className="data-layer-badge raw">{selectedLanguage === 'en' ? 'raw telemetry' : 'dữ liệu thô'}</span>
-              <span className="data-layer-badge computed">{selectedLanguage === 'en' ? 'computed kpi' : 'chỉ số tính toán'}</span>
-              <span className="data-layer-badge predicted">{selectedLanguage === 'en' ? 'prediction' : 'dự báo'}</span>
+            <div className="flex gap-2 mt-2 items-center flex-wrap">
+              <span className="data-layer-badge raw">{selectedLanguage === 'en' ? 'dữ liệu thô' : 'dữ liệu thô'}</span>
+              <span className="data-layer-badge computed">{selectedLanguage === 'en' ? 'chỉ số tính toán' : 'chỉ số tính toán'}</span>
+              <span className="data-layer-badge predicted">{selectedLanguage === 'en' ? 'dự báo' : 'dự báo'}</span>
+              {/* Connection state */}
+              {!appEnv.useMock && (
+                <ConnectionBadge
+                  connectionState={connState}
+                  lastSeenAt={selectedMachine.lastSeenAt}
+                  dataFreshnessSec={selectedMachine.dataFreshnessSec}
+                  lang={selectedLanguage === 'en' ? 'en' : 'vi'}
+                />
+              )}
+              {/* Last seen info when not live */}
+              {!appEnv.useMock && connState && connState !== 'ONLINE' && selectedMachine.lastSeenAt && (
+                <span className="text-[10px] text-industrial-text-secondary flex items-center gap-1">
+                  <WifiOff size={10} />
+                  {selectedLanguage === 'vi' ? 'Cập nhật cuối:' : 'Last seen:'} {new Date(selectedMachine.lastSeenAt).toLocaleTimeString('vi-VN')}
+                </span>
+              )}
             </div>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-6 gap-3 w-full md:w-auto">
             <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg px-3 py-2">
-              <p className="text-[10px] uppercase text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Status' : 'Trạng thái'}</p>
+              <p className="text-[10px] uppercase text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Trạng thái' : 'Trạng thái'}</p>
               <p className={`text-sm font-semibold ${selectedMachine.status === 'FAULT' ? 'text-industrial-error' : selectedMachine.status === 'RUN' ? 'text-industrial-success' : 'text-industrial-info'}`}>{getStatusLabel(selectedMachine.status)}</p>
             </div>
             <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg px-3 py-2">
-              <p className="text-[10px] uppercase text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Mode' : 'Chế độ'}</p>
+              <p className="text-[10px] uppercase text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Chế độ' : 'Chế độ'}</p>
               <p className="text-sm font-semibold text-industrial-text">{selectedMachine.mode}</p>
             </div>
             <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg px-3 py-2">
               <p className="text-[10px] uppercase text-industrial-text-secondary">OEE</p>
-              <p className="text-sm font-semibold text-industrial-border">{Math.round(selectedMachine.oee)}%</p>
+              <p className="text-sm font-semibold text-industrial-border">{fmtLive(selectedMachine.oee, 0)}%</p>
             </div>
             <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg px-3 py-2">
-              <p className="text-[10px] uppercase text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Power' : 'Công suất'}</p>
-              <p className="text-sm font-semibold text-industrial-success">{formatNumber(selectedMachine.powerKw, 1)} kW</p>
+              <p className="text-[10px] uppercase text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Công suất' : 'Công suất'}</p>
+              <p className="text-sm font-semibold text-industrial-success">{fmtLive(selectedMachine.powerKw)} kW</p>
             </div>
             <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg px-3 py-2">
-              <p className="text-[10px] uppercase text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Health' : 'Sức khỏe'}</p>
-              <p className="text-sm font-semibold text-industrial-text">{selectedMachine.machineHealth}%</p>
+              <p className="text-[10px] uppercase text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Sức khỏe' : 'Sức khỏe'}</p>
+              <p className="text-sm font-semibold text-industrial-text">{fmtLive(selectedMachine.machineHealth, 0)}%</p>
             </div>
             <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg px-3 py-2">
-              <p className="text-[10px] uppercase text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Alarms' : 'Cảnh báo'}</p>
+              <p className="text-[10px] uppercase text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Cảnh báo' : 'Cảnh báo'}</p>
               <p className={`text-sm font-semibold ${selectedMachine.activeAlarms > 0 ? 'text-industrial-error' : 'text-industrial-success'}`}>{selectedMachine.activeAlarms}</p>
             </div>
           </div>
@@ -587,21 +624,21 @@ function MachineDetailContent() {
             <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4">
               <div className="bg-industrial-darker p-4 rounded-lg border border-industrial-border/10 cursor-pointer hover:bg-industrial-card transition-colors" onClick={() => setSelectedMetric('powerKw')}>
                  <div className="flex items-center justify-between mb-2">
-                  <p className="text-sm text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Power' : 'Điện'}</p>
+                  <p className="text-sm text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Điện năng' : 'Điện năng'}</p>
                   <Zap size={16} className="text-industrial-success" />
                 </div>
                 <p className="text-2xl font-bold text-industrial-success">
-                  {formatNumber(selectedMachine.powerKw, 1)} <span className="text-sm font-normal">kW</span>
+                  {fmtLive(selectedMachine.powerKw)} <span className="text-sm font-normal">kW</span>
                 </p>
               </div>
 
               <div className="bg-industrial-darker p-4 rounded-lg border border-industrial-border/10 cursor-pointer hover:bg-industrial-card transition-colors" onClick={() => setSelectedMetric('cycleTimeSec')}>
                  <div className="flex items-center justify-between mb-2">
-                  <p className="text-sm text-industrial-text-secondary">{messages.machine.cycleTime || 'Cycle'}</p>
+                  <p className="text-sm text-industrial-text-secondary">{messages.machine.cycleTime || 'Chu kỳ'}</p>
                   <Clock size={16} className="text-industrial-info" />
                 </div>
                 <p className="text-2xl font-bold text-industrial-info">
-                  {selectedMachine.cycleTimeSec}<span className="text-sm font-normal">s</span>
+                  {fmtLive(selectedMachine.cycleTimeSec, 0)}<span className="text-sm font-normal">s</span>
                 </p>
               </div>
 
@@ -644,34 +681,36 @@ function MachineDetailContent() {
               {selectedMachine.temperatureC !== undefined && (
                 <div className="bg-industrial-darker p-4 rounded-lg border border-industrial-border/10 cursor-pointer hover:bg-industrial-card transition-colors" onClick={() => setSelectedMetric('temperatureC')}>
                    <div className="flex items-center justify-between mb-2">
-                    <p className="text-sm text-industrial-text-secondary">{messages.machine.temperature || 'Temp'}</p>
-                    <Thermometer size={16} className={selectedMachine.temperatureC > 70 ? 'text-industrial-error' : 'text-industrial-warning'} />
+                    <p className="text-sm text-industrial-text-secondary">{messages.machine.temperature || 'Nhiệt độ'}</p>
+                    <Thermometer size={16} className={(selectedMachine.temperatureC || 0) > 70 ? 'text-industrial-error' : 'text-industrial-warning'} />
                   </div>
                   <div className="flex items-end gap-2">
-                    <p className={`text-xl font-bold ${selectedMachine.temperatureC > 70 ? 'text-industrial-error animate-pulse' : 'text-industrial-text'}`}>
-                      {formatNumber(selectedMachine.temperatureC, 1)}°C
+                    <p className={`text-xl font-bold ${(selectedMachine.temperatureC || 0) > 70 ? 'text-industrial-error animate-pulse' : 'text-industrial-text'}`}>
+                      {fmtLive(selectedMachine.temperatureC)}°C
                     </p>
                   </div>
-                  <div className="h-1 w-full bg-industrial-card mt-2 rounded-full overflow-hidden">
-                    <div 
-                      className="h-full rounded-full transition-all duration-500"
-                      style={{ 
-                        width: `${Math.min((selectedMachine.temperatureC / 100) * 100, 100)}%`,
-                        backgroundColor: selectedMachine.temperatureC > 70 ? '#ef4444' : selectedMachine.temperatureC > 50 ? '#facc15' : '#22c55e'
-                      }}
-                    ></div>
-                  </div>
+                  {isLive && selectedMachine.temperatureC !== undefined && (
+                    <div className="h-1 w-full bg-industrial-card mt-2 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full rounded-full transition-all duration-500"
+                        style={{ 
+                          width: `${Math.min((selectedMachine.temperatureC / 100) * 100, 100)}%`,
+                          backgroundColor: selectedMachine.temperatureC > 70 ? '#ef4444' : selectedMachine.temperatureC > 50 ? '#facc15' : '#22c55e'
+                        }}
+                      ></div>
+                    </div>
+                  )}
                 </div>
               )}
               
               {selectedMachine.vibrationPct !== undefined && (
                 <div className="bg-industrial-darker p-4 rounded-lg border border-industrial-border/10 cursor-pointer hover:bg-industrial-card transition-colors" onClick={() => setSelectedMetric('vibrationPct')}>
                    <div className="flex items-center justify-between mb-2">
-                    <p className="text-sm text-industrial-text-secondary">{messages.machine.vibration || 'Vibration'}</p>
+                    <p className="text-sm text-industrial-text-secondary">{messages.machine.vibration || 'Độ rung'}</p>
                     <Activity size={16} className="text-industrial-warning" />
                   </div>
                   <p className="text-xl font-bold text-industrial-warning">
-                    {formatNumber(selectedMachine.vibrationPct, 1)}%
+                    {fmtLive(selectedMachine.vibrationPct)}%
                   </p>
                 </div>
               )}
@@ -689,20 +728,21 @@ function MachineDetailContent() {
               {/* Main OEE Score */}
               <div className="xl:col-span-3 bg-industrial-darker/50 p-4 rounded-xl border border-industrial-border/10 flex flex-col items-center justify-center relative">
                 <p className="text-sm font-semibold text-industrial-text-secondary mb-3">
-                  {selectedLanguage === 'en' ? 'OEE KPI' : 'Chi so OEE'}
+                  {selectedLanguage === 'en' ? 'Chỉ số OEE' : 'Chỉ số OEE'}
                 </p>
                 <div className="relative w-32 h-32 mb-2">
                   <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
                     <circle cx="50" cy="50" r="40" fill="none" stroke="rgba(30, 144, 255, 0.1)" strokeWidth="8" />
-                    <circle cx="50" cy="50" r="40" fill="none" stroke={selectedMachine.oee >= 85 ? "#22c55e" : selectedMachine.oee >= 60 ? "#facc15" : "#ef4444"} strokeWidth="8" strokeDasharray={`${(selectedMachine.oee / 100) * 251.2} 251.2`} strokeLinecap="round" className="transition-all duration-1000" />
+                    <circle cx="50" cy="50" r="40" fill="none" stroke={selectedMachine.oee >= 85 ? "#22c55e" : selectedMachine.oee >= 60 ? "#facc15" : "#ef4444"} strokeWidth="8" strokeDasharray={`${((isLive ? selectedMachine.oee : 0) / 100) * 251.2} 251.2`} strokeLinecap="round" className="transition-all duration-1000" />
                   </svg>
                   <div className="absolute inset-0 flex flex-col items-center justify-center">
-                    <p className="text-4xl font-bold text-industrial-text">{selectedMachine.oee}%</p>
+                    <p className="text-4xl font-bold text-industrial-text">{fmtLive(selectedMachine.oee, 0)}</p>
+                    {isLive && <p className="text-xs text-industrial-text-secondary">%</p>}
                   </div>
                 </div>
                 <div className="text-center mt-3 flex flex-col items-center">
                   <p className={`px-4 py-1.5 rounded-full text-xs font-bold ${selectedMachine.oee >= 85 ? "bg-industrial-success/20 text-industrial-success" : selectedMachine.oee >= 60 ? "bg-industrial-warning/20 text-industrial-warning" : "bg-industrial-error/20 text-industrial-error"}`}>
-                    OEE: {selectedMachine.oee}%
+                    OEE: {fmtLive(selectedMachine.oee, 0)}{isLive ? '%' : ''}
                   </p>
                 </div>
               </div>
@@ -711,34 +751,34 @@ function MachineDetailContent() {
               <div className="xl:col-span-5 space-y-4 flex flex-col justify-center bg-industrial-darker/30 p-5 rounded-xl border border-industrial-border/10">
                 <div>
                   <div className="flex justify-between mb-1">
-                    <span className="text-sm text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Availability (A)' : 'Khả dụng (A)'}</span>
-                    <span className="text-sm font-bold text-industrial-success">{selectedMachine.availability}%</span>
+                    <span className="text-sm text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Khả dụng (A)' : 'Khả dụng (A)'}</span>
+                    <span className="text-sm font-bold text-industrial-success">{fmtLive(selectedMachine.availability, 0)}{isLive ? '%' : ''}</span>
                   </div>
                   <div className="h-2 rounded-full bg-industrial-card border border-industrial-border/10 overflow-hidden shadow-inner">
-                    <div className="h-full bg-industrial-success transition-all duration-500" style={{width: `${selectedMachine.availability}%`}}></div>
+                    <div className="h-full bg-industrial-success transition-all duration-500" style={{width: `${isLive ? selectedMachine.availability : 0}%`}}></div>
                   </div>
                 </div>
                 <div>
                   <div className="flex justify-between mb-1">
-                    <span className="text-sm text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Performance (P)' : 'Hiệu suất (P)'}</span>
-                    <span className="text-sm font-bold text-industrial-info">{selectedMachine.performance}%</span>
+                    <span className="text-sm text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Hiệu suất (P)' : 'Hiệu suất (P)'}</span>
+                    <span className="text-sm font-bold text-industrial-info">{fmtLive(selectedMachine.performance, 0)}{isLive ? '%' : ''}</span>
                   </div>
                   <div className="h-2 rounded-full bg-industrial-card border border-industrial-border/10 overflow-hidden shadow-inner">
-                    <div className="h-full bg-industrial-info transition-all duration-500" style={{width: `${selectedMachine.performance}%`}}></div>
+                    <div className="h-full bg-industrial-info transition-all duration-500" style={{width: `${isLive ? selectedMachine.performance : 0}%`}}></div>
                   </div>
                 </div>
                 <div>
                   <div className="flex justify-between mb-1">
-                    <span className="text-sm text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Quality (Q)' : 'Chất lượng (Q)'}</span>
-                    <span className="text-sm font-bold text-industrial-warning">{selectedMachine.quality}%</span>
+                    <span className="text-sm text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Chất lượng (Q)' : 'Chất lượng (Q)'}</span>
+                    <span className="text-sm font-bold text-industrial-warning">{fmtLive(selectedMachine.quality, 0)}{isLive ? '%' : ''}</span>
                   </div>
                   <div className="h-2 rounded-full bg-industrial-card border border-industrial-border/10 overflow-hidden shadow-inner">
-                    <div className="h-full bg-industrial-warning transition-all duration-500" style={{width: `${selectedMachine.quality}%`}}></div>
+                    <div className="h-full bg-industrial-warning transition-all duration-500" style={{width: `${isLive ? selectedMachine.quality : 0}%`}}></div>
                   </div>
                 </div>
                 <div className="pt-2">
                   <p className="text-xs text-industrial-text-secondary bg-industrial-bg px-3 py-2 rounded-lg border border-industrial-border/5 inline-block">
-                    <strong className="text-industrial-border">{selectedLanguage === 'en' ? 'Formula' : 'Công thức'}:</strong> OEE = A × P × Q
+                    <strong className="text-industrial-border">{selectedLanguage === 'en' ? 'Công thức' : 'Công thức'}:</strong> OEE = A × P × Q
                   </p>
                 </div>
               </div>
@@ -817,14 +857,14 @@ function MachineDetailContent() {
                   fill="none"
                   stroke={selectedMachine.machineHealth > 70 ? "#22c55e" : selectedMachine.machineHealth > 40 ? "#facc15" : "#ef4444"}
                   strokeWidth="8"
-                  strokeDasharray={`${(selectedMachine.machineHealth / 100) * 251.2} 251.2`}
+                  strokeDasharray={`${((isLive ? selectedMachine.machineHealth : 0) / 100) * 251.2} 251.2`}
                   strokeLinecap="round"
                   className="transition-all duration-1000"
                 />
               </svg>
               <div className="absolute inset-0 flex flex-col items-center justify-center">
                 <p className="text-4xl font-bold text-industrial-text">
-                  {selectedMachine.machineHealth}
+                  {fmtLive(selectedMachine.machineHealth, 0)}
                 </p>
               </div>
             </div>

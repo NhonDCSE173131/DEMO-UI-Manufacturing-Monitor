@@ -32,7 +32,13 @@
     "language": "Ngôn Ngữ",
     "appTagline": "Trung Tâm Điều Hành Sản Xuất",
     "systemStatus": "Trạng Thái Hệ Thống",
-    "online": "Trực tuyến"
+    "online": "Trực tuyến",
+    "mockMode": "Chế Độ Mock Đang Bật",
+    "connectionOnline": "Trực tuyến",
+    "connectionStale": "Dữ liệu cũ",
+    "connectionOffline": "Mất kết nối",
+    "lastSeen": "Cập nhật cuối",
+    "noLiveData": "Không có dữ liệu trực tiếp"
   },
   "header": {
     "globalFilters": "Bộ lọc toàn cục",

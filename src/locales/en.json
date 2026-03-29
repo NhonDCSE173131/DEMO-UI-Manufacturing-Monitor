@@ -32,7 +32,13 @@
     "language": "Language",
     "appTagline": "Manufacturing Command",
     "systemStatus": "System Status",
-    "online": "Online"
+    "online": "Online",
+    "mockMode": "Mock Mode Active",
+    "connectionOnline": "Online",
+    "connectionStale": "Stale data",
+    "connectionOffline": "Offline",
+    "lastSeen": "Last seen",
+    "noLiveData": "No live data"
   },
   "header": {
     "globalFilters": "Global Filters",

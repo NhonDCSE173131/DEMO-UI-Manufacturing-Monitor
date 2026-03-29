@@ -15,6 +15,8 @@ import Link from 'next/link';
 import { TimeRangeSelector, TimeRange } from '@/components/TimeRangeSelector';
 import { useMemo, useState } from 'react';
 import { buildTimeAxisLabels, getDowntimeUnitLabel, getTimeRangeConfig, normalizeDowntimeMinutes } from '@/lib/time-range-config';
+import { ConnectionBadge } from '@/components/ConnectionBadge';
+import { appEnv } from '@/lib/config/env';
 
 const toAnalyticsQuery = (range: TimeRange) => {
   const rangeConfig = getTimeRangeConfig(range);
@@ -495,6 +497,11 @@ const Dashboard = () => {
               <p className="text-xs text-industrial-text-secondary">{machine.area}</p>
               <p className="text-sm font-semibold text-industrial-text mt-1">{machine.code}</p>
               <p className="text-[11px] text-industrial-text-secondary mt-1">{machine.category}</p>
+              {!appEnv.useMock && machine.connectionState && (
+                <div className="mt-1.5">
+                  <ConnectionBadge connectionState={machine.connectionState} lang={selectedLanguage === 'en' ? 'en' : 'vi'} size="xs" />
+                </div>
+              )}
               <div className="mt-2 h-1.5 rounded-full bg-industrial-card overflow-hidden">
                 <div className={`h-full ${machine.status === 'RUN' ? 'bg-industrial-success' : machine.status === 'FAULT' ? 'bg-industrial-error' : 'bg-industrial-info'}`} style={{ width: `${Math.max(10, machine.machineHealth)}%` }}></div>
               </div>
@@ -530,10 +537,17 @@ const Dashboard = () => {
                       <p className="font-semibold text-industrial-text truncate group-hover:text-industrial-border transition-colors">{machine.name}</p>
                     </div>
                     <p className="text-xs text-industrial-text-secondary">{machine.code} · {machine.status}</p>
-                    <div className="flex gap-1 mt-1">
-                      <span className="data-layer-badge raw">{selectedLanguage === 'en' ? 'raw' : 'thô'}</span>
-                      <span className="data-layer-badge computed">{selectedLanguage === 'en' ? 'kpi' : 'chỉ số'}</span>
-                      <span className="data-layer-badge predicted">{selectedLanguage === 'en' ? 'predict' : 'dự báo'}</span>
+                    <div className="flex gap-1 mt-1 flex-wrap items-center">
+                      <span className="data-layer-badge raw">{selectedLanguage === 'en' ? 'thô' : 'thô'}</span>
+                      <span className="data-layer-badge computed">{selectedLanguage === 'en' ? 'chỉ số' : 'chỉ số'}</span>
+                      <span className="data-layer-badge predicted">{selectedLanguage === 'en' ? 'dự báo' : 'dự báo'}</span>
+                      {!appEnv.useMock && (
+                        <ConnectionBadge
+                          connectionState={machine.connectionState}
+                          lang={selectedLanguage === 'en' ? 'en' : 'vi'}
+                          size="xs"
+                        />
+                      )}
                     </div>
                   </div>
                   <div className="text-right shrink-0">

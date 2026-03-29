@@ -1,9 +1,10 @@
-import type { Machine } from '@/types';
+import type { Machine, ConnectionStateType, OperationalStateType } from '@/types';
 
 const toNumber = (value: unknown): number | undefined => {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (typeof value === 'string' && value.trim() !== '' && !Number.isNaN(Number(value))) {
-    return Number(value);
+  if (typeof value === 'string' && value.trim() !== '') {
+    const n = Number(value);
+    if (Number.isFinite(n)) return n;
   }
   return undefined;
 };
@@ -16,9 +17,9 @@ const toStatus = (value: unknown): Machine['status'] | undefined => {
   const raw = toString(value)?.toUpperCase();
   if (!raw) return undefined;
   if (raw === 'RUN' || raw === 'RUNNING') return 'RUN';
-  if (raw === 'IDLE' || raw === 'WAITING') return 'IDLE';
+  if (raw === 'IDLE' || raw === 'WAITING' || raw === 'WARMUP') return 'IDLE';
   if (raw === 'STOP' || raw === 'STOPPED') return 'STOP';
-  if (raw === 'FAULT' || raw === 'ERROR' || raw === 'ALARM') return 'FAULT';
+  if (raw === 'FAULT' || raw === 'ERROR' || raw === 'ALARM' || raw === 'EMERGENCY_STOP') return 'FAULT';
   if (raw === 'MAINT' || raw === 'MAINTENANCE') return 'MAINT';
   return undefined;
 };
@@ -32,16 +33,39 @@ const toMode = (value: unknown): Machine['mode'] | undefined => {
   return undefined;
 };
 
+const toConnectionState = (value: unknown): ConnectionStateType | undefined => {
+  const raw = toString(value)?.toUpperCase();
+  if (!raw) return undefined;
+  if (raw === 'ONLINE') return 'ONLINE';
+  if (raw === 'STALE' || raw === 'DEGRADED') return 'STALE';
+  if (raw === 'OFFLINE') return 'OFFLINE';
+  return undefined;
+};
+
+const toOperationalState = (value: unknown): OperationalStateType | undefined => {
+  const raw = toString(value)?.toUpperCase();
+  if (!raw) return undefined;
+  if (raw === 'RUNNING') return 'RUNNING';
+  if (raw === 'IDLE' || raw === 'WAITING') return 'IDLE';
+  if (raw === 'WARMUP') return 'WARMUP';
+  if (raw === 'STOPPED') return 'STOPPED';
+  if (raw === 'EMERGENCY_STOP') return 'EMERGENCY_STOP';
+  if (raw === 'MAINTENANCE') return 'MAINTENANCE';
+  return undefined;
+};
+
 export const mapRealtimeTelemetryPatch = (payload: Record<string, unknown>): Partial<Machine> => {
-  const status = toStatus(payload.status ?? payload.machineStatus ?? payload.operationState);
+  const status = toStatus(payload.status ?? payload.machineStatus ?? payload.operationState ?? payload.operationalState);
   const mode = toMode(payload.mode ?? payload.operationMode);
+  const connectionState = toConnectionState(payload.connectionState ?? payload.connection_status ?? payload.connection);
+  const operationalState = toOperationalState(payload.operationalState ?? payload.operational_state);
+
   const rawTelemetry = status && mode
     ? {
         state: status,
         mode,
         powerKw: toNumber(payload.powerKw ?? payload.currentPowerKw),
         temperatureC: toNumber(payload.temperatureC),
-        // vibrationMmS là field chính từ BE snapshot
         vibrationPct: toNumber(payload.vibrationMmS ?? payload.vibrationPct),
         spindleRpm: toNumber(payload.spindleRpm ?? payload.spindleSpeedRpm),
         feedRateMmMin: toNumber(payload.feedRateMmMin),
@@ -49,6 +73,9 @@ export const mapRealtimeTelemetryPatch = (payload: Record<string, unknown>): Par
         programName: toString(payload.programName ?? payload.currentProgram),
       }
     : undefined;
+
+  const lastSeenAt = toString(payload.lastSeenAt ?? payload.lastSeen ?? payload.last_seen_at);
+  const dataFreshnessSec = toNumber(payload.dataFreshnessSec ?? payload.data_freshness_sec ?? payload.freshness);
 
   return {
     status,
@@ -61,18 +88,24 @@ export const mapRealtimeTelemetryPatch = (payload: Record<string, unknown>): Par
     machineHealth: toNumber(payload.machineHealth ?? payload.healthScore),
     activeAlarms: toNumber(payload.activeAlarms ?? payload.alarmCount ?? payload.activeAlarmCount),
     temperatureC: toNumber(payload.temperatureC),
-    // vibrationMmS là field chính; vibrationPct là alias cũ
     vibrationPct: toNumber(payload.vibrationMmS ?? payload.vibrationPct),
     spindleSpeedRpm: toNumber(payload.spindleRpm ?? payload.spindleSpeedRpm),
     feedRateMmMin: toNumber(payload.feedRateMmMin),
     servoLoadPct: toNumber(payload.servoLoadPct),
     currentProgram: toString(payload.programName ?? payload.currentProgram),
-    // rejectCount là field chính từ BE; ngCount là alias cũ
     ngCount: toNumber(payload.rejectCount ?? payload.ngCount),
-    // outputCount là field chính từ BE; partCount là alias cũ
     partCount: toNumber(payload.outputCount ?? payload.partCount),
     goodCount: toNumber(payload.goodCount),
     rawTelemetry,
+    // Connection / system state fields
+    connectionState,
+    operationalState,
+    displayState: toString(payload.displayState ?? payload.display_state),
+    connectionReason: toString(payload.connectionReason ?? payload.connection_reason) ?? null,
+    connectionScope: toString(payload.connectionScope ?? payload.connection_scope) as Machine['connectionScope'] ?? null,
+    lastSeenAt,
+    dataFreshnessSec,
+    liveDataAvailable: connectionState === 'ONLINE',
   };
 };
 

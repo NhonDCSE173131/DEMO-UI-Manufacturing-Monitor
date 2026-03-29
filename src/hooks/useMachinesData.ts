@@ -16,7 +16,7 @@ import {
 
 export const useMachinesData = () => {
   const { machines: storeMachines, events: storeEvents } = useMachineStore();
-  const { snapshotsByMachineId } = useRealtimeStore();
+  const { snapshotsByMachineId, connectionStateByMachineId, lastSeenByMachineId, dataFreshnessByMachineId } = useRealtimeStore();
   const [machines, setMachines] = useState<Machine[]>(
     appEnv.useMock ? applyMachineImageOverrides(storeMachines) : [],
   );
@@ -50,7 +50,7 @@ export const useMachinesData = () => {
       setMachines(applyMachineImageOverrides(mergedMachines, overrides));
       setEvents([]);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Khong tai duoc du lieu may');
+      setError(e instanceof Error ? e.message : 'Không tải được dữ liệu máy');
       setMachines([]);
       setEvents([]);
     } finally {
@@ -71,20 +71,35 @@ export const useMachinesData = () => {
     }
   }, [storeEvents, storeMachines]);
 
-  // Apply realtime patches on top of machines
+  // Apply realtime patches + connection state on top of machines
   useEffect(() => {
-    if (!appEnv.useMock && Object.keys(snapshotsByMachineId).length > 0) {
+    if (!appEnv.useMock) {
+      const hasSnapshots = Object.keys(snapshotsByMachineId).length > 0;
+      const hasConnStates = Object.keys(connectionStateByMachineId).length > 0;
+      if (!hasSnapshots && !hasConnStates) return;
+
       setMachines((prev) =>
         prev.map((machine) => {
           const rtPatch = snapshotsByMachineId[machine.id];
-          if (rtPatch) {
-            return { ...machine, ...rtPatch };
+          const connState = connectionStateByMachineId[machine.id] as Machine['connectionState'] | undefined;
+          const lastSeen = lastSeenByMachineId[machine.id];
+          const freshness = dataFreshnessByMachineId[machine.id];
+
+          const updates: Partial<Machine> = {};
+          if (rtPatch) Object.assign(updates, rtPatch);
+          if (connState) {
+            updates.connectionState = connState;
+            updates.liveDataAvailable = connState === 'ONLINE';
           }
-          return machine;
+          if (lastSeen) updates.lastSeenAt = lastSeen;
+          if (freshness !== undefined) updates.dataFreshnessSec = freshness;
+
+          if (Object.keys(updates).length === 0) return machine;
+          return { ...machine, ...updates };
         }),
       );
     }
-  }, [snapshotsByMachineId]);
+  }, [snapshotsByMachineId, connectionStateByMachineId, lastSeenByMachineId, dataFreshnessByMachineId]);
 
   useEffect(() => {
     const handleChanged = () => syncImageOverrides();

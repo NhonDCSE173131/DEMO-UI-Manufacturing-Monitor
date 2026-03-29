@@ -1,4 +1,4 @@
-import type { Machine } from '@/types';
+import type { Machine, ConnectionStateType, OperationalStateType } from '@/types';
 
 const asNumber = (...values: unknown[]): number | undefined => {
   for (const value of values) {
@@ -22,6 +22,7 @@ const normalizeStatus = (value?: string): Machine['status'] => {
       return 'RUN';
     case 'IDLE':
     case 'WAITING':
+    case 'WARMUP':
       return 'IDLE';
     case 'STOP':
     case 'STOPPED':
@@ -29,6 +30,7 @@ const normalizeStatus = (value?: string): Machine['status'] => {
     case 'FAULT':
     case 'ALARM':
     case 'ERROR':
+    case 'EMERGENCY_STOP':
       return 'FAULT';
     case 'MAINT':
     case 'MAINTENANCE':
@@ -52,13 +54,47 @@ const normalizeMode = (value?: string): Machine['mode'] => {
   }
 };
 
+const normalizeConnectionState = (value?: string): ConnectionStateType | undefined => {
+  switch ((value || '').toUpperCase()) {
+    case 'ONLINE': return 'ONLINE';
+    case 'STALE':
+    case 'DEGRADED': return 'STALE';
+    case 'OFFLINE': return 'OFFLINE';
+    default: return undefined;
+  }
+};
+
+const normalizeOperationalState = (value?: string): OperationalStateType | undefined => {
+  switch ((value || '').toUpperCase()) {
+    case 'RUNNING': return 'RUNNING';
+    case 'IDLE':
+    case 'WAITING': return 'IDLE';
+    case 'WARMUP': return 'WARMUP';
+    case 'STOPPED': return 'STOPPED';
+    case 'EMERGENCY_STOP': return 'EMERGENCY_STOP';
+    case 'MAINTENANCE': return 'MAINTENANCE';
+    default: return undefined;
+  }
+};
+
 // Map a partial backend payload to the current UI Machine model with safe defaults.
 export const mapApiMachineToUi = (input: Partial<Machine> & Record<string, unknown>): Machine => {
   const id = String(asString(input.id, input.machineId, input.code, input.machineCode) || `M-${Date.now()}`);
   const code = asString(input.code, input.machineCode, input.name, input.machineName, id) || id;
   const name = asString(input.name, input.machineName, input.displayName, code) || code;
-  const status = normalizeStatus(asString(input.status, input.machineState));
+  const status = normalizeStatus(asString(input.status, input.machineState, input.operationalState));
   const mode = normalizeMode(asString(input.mode, input.operationMode));
+
+  // Connection state fields
+  const connectionState = normalizeConnectionState(asString(input.connectionState, input.connection_status));
+  const operationalState = normalizeOperationalState(asString(input.operationalState, input.operational_state));
+  const displayState = asString(input.displayState, input.display_state);
+  const connectionReason = asString(input.connectionReason, input.connection_reason) ?? null;
+  const connectionScope = asString(input.connectionScope, input.connection_scope) as Machine['connectionScope'] ?? null;
+  const lastSeenAt = asString(input.lastSeenAt, input.lastSeen, input.last_seen_at);
+  const dataFreshnessSec = asNumber(input.dataFreshnessSec, input.data_freshness_sec, input.freshness);
+  const connectionUnstable = typeof input.connectionUnstable === 'boolean' ? input.connectionUnstable : undefined;
+  const liveDataAvailable = connectionState === 'ONLINE';
 
   // Analytics fields: không ép về 0 nếu thiếu, giữ undefined để UI hiện '--'
   const oee = asNumber(input.oee, input.todayOee);
@@ -90,9 +126,7 @@ export const mapApiMachineToUi = (input: Partial<Machine> & Record<string, unkno
     idealCycleTimeSec: asNumber(input.idealCycleTimeSec) ?? 0,
     partCount: asNumber(input.partCount, input.totalParts, input.outputCount) ?? 0,
     goodCount: asNumber(input.goodCount, input.goodParts) ?? 0,
-    // Đúng field name: rejectCount là nguồn gốc, ngCount / rejectParts là alias
     ngCount: asNumber(input.ngCount, input.rejectCount, input.rejectParts, input.badParts) ?? 0,
-    // machineHealth: để 0 nếu thiếu nhưng UI sẽ kiểm tra
     machineHealth: asNumber(input.machineHealth, input.healthScore, input.maintenanceHealthScore) ?? 0,
     maintenanceDueDays: asNumber(input.maintenanceDueDays, input.daysToMaintenance) ?? 0,
     anomalyScore: asNumber(input.anomalyScore, input.abnormalScore) ?? 0,
@@ -106,7 +140,6 @@ export const mapApiMachineToUi = (input: Partial<Machine> & Record<string, unkno
     widthOfCutMm: asNumber(input.widthOfCutMm),
     materialRemovalRateCm3Min: asNumber(input.materialRemovalRateCm3Min),
     spindleLoadPct: asNumber(input.spindleLoadPct),
-    // vibrationMmS là field chính từ BE snapshot; vibrationPct là alias cũ
     vibrationPct: asNumber(input.vibrationMmS, input.vibrationPct),
     temperatureC: asNumber(input.temperatureC),
     weldingCurrentA: asNumber(input.weldingCurrentA),
@@ -127,6 +160,16 @@ export const mapApiMachineToUi = (input: Partial<Machine> & Record<string, unkno
       },
     computedMetrics: input.computedMetrics as Machine['computedMetrics'],
     predictions: input.predictions as Machine['predictions'],
+    // Connection / system state fields
+    connectionState,
+    operationalState,
+    displayState,
+    connectionReason,
+    connectionScope,
+    lastSeenAt,
+    dataFreshnessSec,
+    connectionUnstable,
+    liveDataAvailable,
   };
 };
 

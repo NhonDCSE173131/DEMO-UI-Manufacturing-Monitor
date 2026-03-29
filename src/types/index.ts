@@ -1,5 +1,7 @@
 export type MachineStatus = 'RUN' | 'IDLE' | 'STOP' | 'FAULT' | 'MAINT';
 export type MachineMode = 'AUTO' | 'MANUAL' | 'SETUP';
+export type ConnectionStateType = 'ONLINE' | 'STALE' | 'OFFLINE';
+export type OperationalStateType = 'RUNNING' | 'IDLE' | 'WARMUP' | 'STOPPED' | 'EMERGENCY_STOP' | 'MAINTENANCE';
 export type MachineType = 'robot-welding' | 'cnc-milling' | 'cnc-turning' | 'pick-place' | 'cutting-polishing';
 export type MachineCategory = 'robot_only' | 'cnc_machine' | 'robot_cnc_cell';
 export type EventType = 'info' | 'warning' | 'critical' | 'downtime' | 'maintenance';
@@ -82,6 +84,16 @@ export interface Machine {
   rawTelemetry?: RawTelemetry;
   computedMetrics?: ComputedMetrics;
   predictions?: PredictionMetrics;
+  // Connection / system state fields
+  connectionState?: ConnectionStateType;
+  connectionUnstable?: boolean;
+  lastSeenAt?: string;
+  dataFreshnessSec?: number;
+  operationalState?: OperationalStateType;
+  displayState?: string;
+  connectionReason?: string | null;
+  connectionScope?: 'PLC' | 'COLLECTOR' | 'BE_WATCHDOG' | null;
+  liveDataAvailable?: boolean;
 }
 
 export interface MachineEvent {
