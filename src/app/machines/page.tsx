@@ -16,7 +16,7 @@ import { TimeRangeSelector, TimeRange } from '@/components/TimeRangeSelector';
 import { getTimeRangeConfig } from '@/lib/time-range-config';
 import { useRealtimeStore, type TelemetryPoint } from '@/lib/realtime-store';
 import { ConnectionBadge, liveMetricValue } from '@/components/ConnectionBadge';
-import type { ConnectionStateType, DisplayStateType, Machine, OperationalStateType } from '@/types';
+import type { ConnectionStateType, DisplayStateType, Machine } from '@/types';
 
 type MetricKey =
   | 'powerKw'
@@ -71,6 +71,15 @@ const statusFromDisplayState = (displayState?: DisplayStateType): Machine['statu
   if (displayState === 'EMERGENCY_STOP') return 'FAULT';
   if (displayState === 'MAINTENANCE') return 'MAINT';
   return 'IDLE';
+};
+
+const colorFromDisplayState = (displayState?: DisplayStateType) => {
+  const status = statusFromDisplayState(displayState);
+  if (displayState === 'OFFLINE' || displayState === 'STALE' || displayState === 'UNSTABLE') return '#ef4444';
+  if (status === 'RUN') return '#22c55e';
+  if (status === 'FAULT') return '#ef4444';
+  if (status === 'IDLE') return '#60a5fa';
+  return '#facc15';
 };
 
 const getHistoryInterval = (totalMinutes: number): MachineHistoryQuery['interval'] => {
@@ -148,15 +157,6 @@ function MachineDetailContent() {
     return '#facc15';
   };
 
-  const getStatusLabel = (status: string) => {
-    if (status === 'RUN') return messages.machine.running;
-    if (status === 'FAULT') return messages.machine.fault;
-    if (status === 'IDLE') return messages.machine.idle;
-    if (status === 'STOP') return messages.machine.stopped;
-    if (status === 'MAINT') return messages.machine.maintenance;
-    return status;
-  };
-
   const machineEvents = selectedMachine
     ? events.filter((e) => e.machineId === selectedMachine.id).slice(0, 5)
     : [];
@@ -194,7 +194,10 @@ function MachineDetailContent() {
         });
 
         if (!active) return;
-        if (points.length === 0) return;
+        if (points.length === 0) {
+          seedTelemetrySeries(selectedMachineId, []);
+          return;
+        }
         const mappedPoints: TelemetryPoint[] = points.map((p) => ({
           timestamp: String((p as Record<string, unknown>).timestamp || (p as Record<string, unknown>).ts || new Date().toISOString()),
           powerKw: toSafeNumber((p as Record<string, unknown>).powerKw),
@@ -237,6 +240,23 @@ function MachineDetailContent() {
 
   const realtimeHistory = getHistoryWindow(timeRange);
   const metricHistory = getHistoryWindow(metricRange);
+  const latestPoint = realtimeHistory.length > 0 ? realtimeHistory[realtimeHistory.length - 1] : undefined;
+  const liveValue = (seriesValue: number | undefined, snapshotValue: number | undefined) => {
+    if (seriesValue !== undefined) return seriesValue;
+    return snapshotValue;
+  };
+  const liveOee = liveValue(latestPoint?.oee, selectedMachine?.oee);
+  const liveAvailability = liveValue(latestPoint?.availability, selectedMachine?.availability);
+  const livePerformance = liveValue(latestPoint?.performance, selectedMachine?.performance);
+  const liveQuality = liveValue(latestPoint?.quality, selectedMachine?.quality);
+  const livePowerKw = liveValue(latestPoint?.powerKw, selectedMachine?.powerKw);
+  const liveCycleTimeSec = liveValue(latestPoint?.cycleTimeSec, selectedMachine?.cycleTimeSec);
+  const liveTemperatureC = liveValue(latestPoint?.temperatureC, selectedMachine?.temperatureC);
+  const liveVibrationMmS = liveValue(latestPoint?.vibrationMmS ?? latestPoint?.vibrationPct, selectedMachine?.vibrationPct);
+  const liveSpindleRpm = liveValue(latestPoint?.spindleSpeedRpm ?? latestPoint?.spindleRpm, selectedMachine?.spindleSpeedRpm);
+  const liveFeedRate = liveValue(latestPoint?.feedRateMmMin, selectedMachine?.feedRateMmMin);
+  const livePartCount = liveValue(latestPoint?.partCount ?? latestPoint?.outputCount, selectedMachine?.partCount);
+  const liveNgCount = liveValue(latestPoint?.ngCount ?? latestPoint?.rejectCount, selectedMachine?.ngCount);
   const safeMetric = (value: number | undefined) => value ?? 0;
   const safeMaintenanceDays = (value: number | undefined) => value ?? Number.POSITIVE_INFINITY;
   const productionTotal = Math.max(1, selectedMachine?.partCount ?? 0);
@@ -395,13 +415,13 @@ function MachineDetailContent() {
   if (selectedMachine.widthOfCutMm !== undefined) allMetrics.push({ key: 'widthOfCutMm', label: selectedLanguage === 'en' ? 'Width of Cut' : 'Chiều rộng cắt', unit: 'mm', color: 'rgb(23, 162, 184)', value: selectedMachine.widthOfCutMm });
   if (selectedMachine.materialRemovalRateCm3Min !== undefined) allMetrics.push({ key: 'materialRemovalRateCm3Min', label: selectedLanguage === 'en' ? 'MRR' : 'Tốc độ bóc tách VL', unit: 'cm³/min', color: 'rgb(23, 162, 184)', value: selectedMachine.materialRemovalRateCm3Min });
   if (selectedMachine.temperatureC !== undefined) allMetrics.push({ key: 'temperatureC', label: messages.machine.temperature || 'Temperature', unit: '°C', color: 'rgb(23, 162, 184)', value: selectedMachine.temperatureC });
-  if ((selectedMachine.vibrationMmS ?? selectedMachine.vibrationPct) !== undefined) {
+  if (selectedMachine.vibrationPct !== undefined) {
     allMetrics.push({
       key: 'vibrationPct',
       label: selectedLanguage === 'en' ? 'Vibration' : 'Độ rung',
       unit: 'mm/s',
       color: 'rgb(23, 162, 184)',
-      value: selectedMachine.vibrationMmS ?? selectedMachine.vibrationPct,
+      value: selectedMachine.vibrationPct,
     });
   }
 
@@ -441,12 +461,7 @@ function MachineDetailContent() {
                 <div
                   className="w-2 h-2 rounded-full shrink-0"
                   style={{
-                    backgroundColor:
-                      machine.status === 'RUN'
-                        ? '#22c55e'
-                        : machine.status === 'FAULT'
-                        ? '#ef4444'
-                        : '#facc15',
+                    backgroundColor: colorFromDisplayState(normalizeDisplayState(machine)),
                   }}
                 ></div>
                 <p className="font-semibold text-sm line-clamp-1">{machine.code}</p>
@@ -502,11 +517,11 @@ function MachineDetailContent() {
             </div>
             <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg px-3 py-2">
               <p className="text-[10px] uppercase text-industrial-text-secondary">OEE</p>
-              <p className="text-sm font-semibold text-industrial-border">{fmtLive(selectedMachine.oee, 0)}%</p>
+              <p className="text-sm font-semibold text-industrial-border">{fmtLive(liveOee, 0)}%</p>
             </div>
             <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg px-3 py-2">
               <p className="text-[10px] uppercase text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Công suất' : 'Công suất'}</p>
-              <p className="text-sm font-semibold text-industrial-success">{fmtLive(selectedMachine.powerKw)} kW</p>
+              <p className="text-sm font-semibold text-industrial-success">{fmtLive(livePowerKw)} kW</p>
             </div>
             <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg px-3 py-2">
               <p className="text-[10px] uppercase text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Sức khỏe' : 'Sức khỏe'}</p>
@@ -625,7 +640,7 @@ function MachineDetailContent() {
                 <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg p-4">
                   <p className="text-xs uppercase text-industrial-text-secondary mb-2">{selectedLanguage === 'en' ? 'Condition Monitoring' : 'Giám sát tình trạng'}</p>
                   <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Temperature' : 'Nhiệt độ'}: {fmtLive(selectedMachine.rawTelemetry?.temperatureC ?? selectedMachine.temperatureC)}C</p>
-                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Vibration' : 'Độ rung'}: {fmtLive(selectedMachine.rawTelemetry?.vibrationMmS ?? selectedMachine.rawTelemetry?.vibrationPct ?? selectedMachine.vibrationMmS ?? selectedMachine.vibrationPct)} mm/s</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Vibration' : 'Độ rung'}: {fmtLive(selectedMachine.rawTelemetry?.vibrationMmS ?? selectedMachine.rawTelemetry?.vibrationPct ?? selectedMachine.vibrationPct)} mm/s</p>
                   <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Tool life' : 'Tuổi thọ dao'}: {fmtLive(selectedMachine.predictions?.remainingToolLifePct ?? selectedMachine.toolLifeRemainingPct, 0)}%</p>
                 </div>
               </div>
@@ -662,7 +677,7 @@ function MachineDetailContent() {
                   <Zap size={16} className="text-industrial-success" />
                 </div>
                 <p className="text-2xl font-bold text-industrial-success">
-                  {fmtLive(selectedMachine.powerKw)} <span className="text-sm font-normal">kW</span>
+                  {fmtLive(livePowerKw)} <span className="text-sm font-normal">kW</span>
                 </p>
               </div>
 
@@ -672,7 +687,7 @@ function MachineDetailContent() {
                   <Clock size={16} className="text-industrial-info" />
                 </div>
                 <p className="text-2xl font-bold text-industrial-info">
-                  {fmtLive(selectedMachine.cycleTimeSec, 0)}<span className="text-sm font-normal">s</span>
+                  {fmtLive(liveCycleTimeSec, 0)}<span className="text-sm font-normal">s</span>
                 </p>
               </div>
 
@@ -680,7 +695,7 @@ function MachineDetailContent() {
                 <div className="bg-industrial-darker p-4 rounded-lg border border-industrial-border/10 cursor-pointer hover:bg-industrial-card transition-colors" onClick={() => setSelectedMetric('spindleSpeedRpm')}>
                   <p className="text-sm text-industrial-text-secondary mb-2">{selectedLanguage === 'en' ? 'Spindle Speed' : 'Tốc độ trục chính'}</p>
                   <p className="text-xl font-bold text-industrial-text">
-                    {fmtLive(selectedMachine.spindleSpeedRpm, 0)} <span className="text-xs font-normal">rpm</span>
+                    {fmtLive(liveSpindleRpm, 0)} <span className="text-xs font-normal">rpm</span>
                   </p>
                 </div>
               )}
@@ -689,7 +704,7 @@ function MachineDetailContent() {
                 <div className="bg-industrial-darker p-4 rounded-lg border border-industrial-border/10 cursor-pointer hover:bg-industrial-card transition-colors" onClick={() => setSelectedMetric('feedRateMmMin')}>
                   <p className="text-sm text-industrial-text-secondary mb-2">{selectedLanguage === 'en' ? 'Feed Rate' : 'Lượng chạy dao'}</p>
                   <p className="text-xl font-bold text-industrial-text">
-                    {fmtLive(selectedMachine.feedRateMmMin)} <span className="text-xs font-normal">mm/min</span>
+                    {fmtLive(liveFeedRate)} <span className="text-xs font-normal">mm/min</span>
                   </p>
                 </div>
               )}
@@ -716,20 +731,20 @@ function MachineDetailContent() {
                 <div className="bg-industrial-darker p-4 rounded-lg border border-industrial-border/10 cursor-pointer hover:bg-industrial-card transition-colors" onClick={() => setSelectedMetric('temperatureC')}>
                    <div className="flex items-center justify-between mb-2">
                     <p className="text-sm text-industrial-text-secondary">{messages.machine.temperature || 'Nhiệt độ'}</p>
-                    <Thermometer size={16} className={(selectedMachine.temperatureC || 0) > 70 ? 'text-industrial-error' : 'text-industrial-warning'} />
+                    <Thermometer size={16} className={(liveTemperatureC ?? 0) > 70 ? 'text-industrial-error' : 'text-industrial-warning'} />
                   </div>
                   <div className="flex items-end gap-2">
-                    <p className={`text-xl font-bold ${(selectedMachine.temperatureC || 0) > 70 ? 'text-industrial-error animate-pulse' : 'text-industrial-text'}`}>
-                      {fmtLive(selectedMachine.temperatureC)}°C
+                    <p className={`text-xl font-bold ${(liveTemperatureC ?? 0) > 70 ? 'text-industrial-error animate-pulse' : 'text-industrial-text'}`}>
+                        {fmtLive(liveTemperatureC)}°C
                     </p>
                   </div>
-                  {isLive && selectedMachine.temperatureC !== undefined && (
+                  {isLive && liveTemperatureC !== undefined && (
                     <div className="h-1 w-full bg-industrial-card mt-2 rounded-full overflow-hidden">
                       <div 
                         className="h-full rounded-full transition-all duration-500"
                         style={{ 
-                          width: `${Math.min((selectedMachine.temperatureC / 100) * 100, 100)}%`,
-                          backgroundColor: selectedMachine.temperatureC > 70 ? '#ef4444' : selectedMachine.temperatureC > 50 ? '#facc15' : '#22c55e'
+                          width: `${Math.min((liveTemperatureC / 100) * 100, 100)}%`,
+                          backgroundColor: liveTemperatureC > 70 ? '#ef4444' : liveTemperatureC > 50 ? '#facc15' : '#22c55e'
                         }}
                       ></div>
                     </div>
@@ -737,13 +752,13 @@ function MachineDetailContent() {
                 </div>
               )}
               
-              {(selectedMachine.vibrationMmS ?? selectedMachine.vibrationPct) !== undefined && (
+              {selectedMachine.vibrationPct !== undefined && (
                 <div className="bg-industrial-darker p-4 rounded-lg border border-industrial-border/10 cursor-pointer hover:bg-industrial-card transition-colors" onClick={() => setSelectedMetric('vibrationPct')}>
                    <div className="flex items-center justify-between mb-2">
                     <p className="text-sm text-industrial-text-secondary">{messages.machine.vibration || 'Độ rung'}</p>
                     <Activity size={16} className="text-industrial-warning" />
                   </div>
-                  <p className="text-xl font-bold text-industrial-warning">{fmtLive(selectedMachine.vibrationMmS ?? selectedMachine.vibrationPct)} mm/s</p>
+                  <p className="text-xl font-bold text-industrial-warning">{fmtLive(liveVibrationMmS)} mm/s</p>
                 </div>
               )}
             </div>
@@ -765,16 +780,16 @@ function MachineDetailContent() {
                 <div className="relative w-32 h-32 mb-2">
                   <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
                     <circle cx="50" cy="50" r="40" fill="none" stroke="rgba(30, 144, 255, 0.1)" strokeWidth="8" />
-                    <circle cx="50" cy="50" r="40" fill="none" stroke={safeMetric(selectedMachine.oee) >= 85 ? "#22c55e" : safeMetric(selectedMachine.oee) >= 60 ? "#facc15" : "#ef4444"} strokeWidth="8" strokeDasharray={`${((isLive ? safeMetric(selectedMachine.oee) : 0) / 100) * 251.2} 251.2`} strokeLinecap="round" className="transition-all duration-1000" />
+                    <circle cx="50" cy="50" r="40" fill="none" stroke={safeMetric(liveOee) >= 85 ? "#22c55e" : safeMetric(liveOee) >= 60 ? "#facc15" : "#ef4444"} strokeWidth="8" strokeDasharray={`${((isLive ? safeMetric(liveOee) : 0) / 100) * 251.2} 251.2`} strokeLinecap="round" className="transition-all duration-1000" />
                   </svg>
                   <div className="absolute inset-0 flex flex-col items-center justify-center">
-                    <p className="text-4xl font-bold text-industrial-text">{fmtLive(selectedMachine.oee, 0)}</p>
+                    <p className="text-4xl font-bold text-industrial-text">{fmtLive(liveOee, 0)}</p>
                     {isLive && <p className="text-xs text-industrial-text-secondary">%</p>}
                   </div>
                 </div>
                 <div className="text-center mt-3 flex flex-col items-center">
-                  <p className={`px-4 py-1.5 rounded-full text-xs font-bold ${safeMetric(selectedMachine.oee) >= 85 ? "bg-industrial-success/20 text-industrial-success" : safeMetric(selectedMachine.oee) >= 60 ? "bg-industrial-warning/20 text-industrial-warning" : "bg-industrial-error/20 text-industrial-error"}`}>
-                    OEE: {fmtLive(selectedMachine.oee, 0)}{isLive ? '%' : ''}
+                  <p className={`px-4 py-1.5 rounded-full text-xs font-bold ${safeMetric(liveOee) >= 85 ? "bg-industrial-success/20 text-industrial-success" : safeMetric(liveOee) >= 60 ? "bg-industrial-warning/20 text-industrial-warning" : "bg-industrial-error/20 text-industrial-error"}`}>
+                    OEE: {fmtLive(liveOee, 0)}{isLive ? '%' : ''}
                   </p>
                 </div>
               </div>
@@ -784,28 +799,28 @@ function MachineDetailContent() {
                 <div>
                   <div className="flex justify-between mb-1">
                     <span className="text-sm text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Khả dụng (A)' : 'Khả dụng (A)'}</span>
-                    <span className="text-sm font-bold text-industrial-success">{fmtLive(selectedMachine.availability, 0)}{isLive ? '%' : ''}</span>
+                    <span className="text-sm font-bold text-industrial-success">{fmtLive(liveAvailability, 0)}{isLive ? '%' : ''}</span>
                   </div>
                   <div className="h-2 rounded-full bg-industrial-card border border-industrial-border/10 overflow-hidden shadow-inner">
-                    <div className="h-full bg-industrial-success transition-all duration-500" style={{width: `${isLive ? selectedMachine.availability : 0}%`}}></div>
+                    <div className="h-full bg-industrial-success transition-all duration-500" style={{width: `${isLive ? safeMetric(liveAvailability) : 0}%`}}></div>
                   </div>
                 </div>
                 <div>
                   <div className="flex justify-between mb-1">
                     <span className="text-sm text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Hiệu suất (P)' : 'Hiệu suất (P)'}</span>
-                    <span className="text-sm font-bold text-industrial-info">{fmtLive(selectedMachine.performance, 0)}{isLive ? '%' : ''}</span>
+                    <span className="text-sm font-bold text-industrial-info">{fmtLive(livePerformance, 0)}{isLive ? '%' : ''}</span>
                   </div>
                   <div className="h-2 rounded-full bg-industrial-card border border-industrial-border/10 overflow-hidden shadow-inner">
-                    <div className="h-full bg-industrial-info transition-all duration-500" style={{width: `${isLive ? selectedMachine.performance : 0}%`}}></div>
+                    <div className="h-full bg-industrial-info transition-all duration-500" style={{width: `${isLive ? safeMetric(livePerformance) : 0}%`}}></div>
                   </div>
                 </div>
                 <div>
                   <div className="flex justify-between mb-1">
                     <span className="text-sm text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Chất lượng (Q)' : 'Chất lượng (Q)'}</span>
-                    <span className="text-sm font-bold text-industrial-warning">{fmtLive(selectedMachine.quality, 0)}{isLive ? '%' : ''}</span>
+                    <span className="text-sm font-bold text-industrial-warning">{fmtLive(liveQuality, 0)}{isLive ? '%' : ''}</span>
                   </div>
                   <div className="h-2 rounded-full bg-industrial-card border border-industrial-border/10 overflow-hidden shadow-inner">
-                    <div className="h-full bg-industrial-warning transition-all duration-500" style={{width: `${isLive ? selectedMachine.quality : 0}%`}}></div>
+                    <div className="h-full bg-industrial-warning transition-all duration-500" style={{width: `${isLive ? safeMetric(liveQuality) : 0}%`}}></div>
                   </div>
                 </div>
                 <div className="pt-2">
@@ -826,14 +841,14 @@ function MachineDetailContent() {
                       <div className="w-12 h-12 rounded-full bg-industrial-border/10 flex items-center justify-center mb-3 text-industrial-border">
                          <Package size={24} />
                       </div>
-                      <span className="text-3xl font-bold font-mono text-industrial-text">{isLive ? selectedMachine.partCount : '--'}</span>
+                      <span className="text-3xl font-bold font-mono text-industrial-text">{isLive ? (livePartCount ?? '--') : '--'}</span>
                       <span className="text-xs text-industrial-text-secondary mt-1">{messages.machine.partCount}</span>
                   </div>
                   <div className="bg-industrial-card border border-industrial-error/5 rounded-lg p-4 flex flex-col items-center justify-center text-center">
                       <div className="w-12 h-12 rounded-full bg-industrial-error/10 flex items-center justify-center mb-3 text-industrial-error">
                          <AlertTriangle size={24} />
                       </div>
-                      <span className="text-3xl font-bold font-mono text-industrial-error">{isLive ? selectedMachine.ngCount : '--'}</span>
+                      <span className="text-3xl font-bold font-mono text-industrial-error">{isLive ? (liveNgCount ?? '--') : '--'}</span>
                       <span className="text-xs text-industrial-error mt-1">{messages.machine.ngParts || 'NG Parts'}</span>
                   </div>
                 </div>

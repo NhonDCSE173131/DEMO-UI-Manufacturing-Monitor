@@ -155,7 +155,6 @@ export const mapApiMachineToUi = (input: Partial<Machine> & Record<string, unkno
     widthOfCutMm: asNumber(input.widthOfCutMm),
     materialRemovalRateCm3Min: asNumber(input.materialRemovalRateCm3Min),
     spindleLoadPct: asNumber(input.spindleLoadPct),
-    vibrationMmS: asNumber(input.vibrationMmS, input.vibrationPct),
     vibrationPct: asNumber(input.vibrationPct, input.vibrationMmS),
     temperatureC: asNumber(input.temperatureC),
     weldingCurrentA: asNumber(input.weldingCurrentA),

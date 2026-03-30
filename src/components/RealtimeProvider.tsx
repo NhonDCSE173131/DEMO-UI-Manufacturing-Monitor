@@ -95,20 +95,36 @@ export function RealtimeProvider() {
             const isConnectionTopic = topic === 'connection' || String(topic).startsWith('machine-connection');
 
             if (machineId && (isTelemetryTopic || isConnectionTopic)) {
-              const connectionStateRaw = payload.connectionState ?? payload.connection_status ?? payload.connection;
+              const unstableFlag = payload.connectionUnstable === true;
+              const connectionStateRaw =
+                payload.connectionState ??
+                payload.connection_status ??
+                payload.connection ??
+                payload.to ??
+                payload.state;
               const connectionState = typeof connectionStateRaw === 'string' ? connectionStateRaw.toUpperCase() : '';
-              if (connectionState === 'ONLINE' || connectionState === 'STALE' || connectionState === 'OFFLINE' || connectionState === 'UNSTABLE') {
-                setMachineConnectionState(machineId, connectionState);
+              const effectiveConnectionState = unstableFlag ? 'UNSTABLE' : connectionState;
+              if (effectiveConnectionState === 'ONLINE' || effectiveConnectionState === 'STALE' || effectiveConnectionState === 'OFFLINE' || effectiveConnectionState === 'UNSTABLE') {
+                setMachineConnectionState(machineId, effectiveConnectionState);
+                patchMachineSnapshot(machineId, {
+                  connectionState: effectiveConnectionState,
+                  connectionUnstable: unstableFlag,
+                } as never);
               }
 
               const lastSeenTsRaw = payload.lastSeenAt ?? payload.lastSeen;
               if (typeof lastSeenTsRaw === 'string' && lastSeenTsRaw.trim() !== '') {
                 setMachineLastSeen(machineId, lastSeenTsRaw);
+                patchMachineSnapshot(machineId, { lastSeenAt: lastSeenTsRaw } as never);
               }
 
-              const freshnessSec = toSafeNumber(payload.dataFreshnessSec ?? payload.freshness);
+              const freshnessSec = toSafeNumber(payload.dataFreshnessSec ?? payload.freshness ?? payload.freshnessSec);
               if (typeof freshnessSec === 'number') {
                 setMachineDataFreshness(machineId, freshnessSec);
+                patchMachineSnapshot(machineId, {
+                  dataFreshnessSec: freshnessSec,
+                  liveDataAvailable: (effectiveConnectionState === 'ONLINE' || effectiveConnectionState === 'UNSTABLE') && freshnessSec <= 30,
+                } as never);
               }
             }
 

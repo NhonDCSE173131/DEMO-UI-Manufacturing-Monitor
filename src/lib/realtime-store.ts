@@ -49,7 +49,8 @@ export interface TelemetryPoint {
   quality?: number;
 }
 
-const MAX_SERIES_POINTS = 300;
+// 1h raw 1s series + headroom for reconnect gaps.
+const MAX_SERIES_POINTS = 5400;
 
 interface RealtimeState {
   /** Trạng thái kết nối SSE */
@@ -179,16 +180,16 @@ export const useRealtimeStore = create<RealtimeState>()((set, get) => ({
     const state = get();
     // App phải ở trạng thái live hoặc connecting
     if (state.connectionStatus !== 'live' && state.connectionStatus !== 'connecting') return false;
-    // Quan trọng: Máy phải có connectionState = ONLINE
-    // Nếu không có thông tin connectionState → coi như OFFLINE (chưa có dữ liệu PLC)
+    // ONLINE = live chuẩn, UNSTABLE = vẫn live nhưng cần cảnh báo ở UI.
     const connState = state.connectionStateByMachineId[machineId];
-    if (!connState || connState !== 'ONLINE') return false;
+    if (!connState || (connState !== 'ONLINE' && connState !== 'UNSTABLE')) return false;
     // Dữ liệu phải còn fresh
     const freshness = state.dataFreshnessByMachineId[machineId];
     if (freshness !== undefined && freshness > freshnessSec) return false;
-    // Phải đã nhận ít nhất 1 snapshot cho máy này
+    // Chấp nhận snapshot hoặc đã có ít nhất 1 telemetry point.
     const snapshot = state.snapshotsByMachineId[machineId];
-    if (!snapshot || Object.keys(snapshot).length === 0) return false;
+    const series = state.telemetrySeriesByMachineId[machineId] || [];
+    if ((!snapshot || Object.keys(snapshot).length === 0) && series.length === 0) return false;
     return true;
   },
 
@@ -196,15 +197,16 @@ export const useRealtimeStore = create<RealtimeState>()((set, get) => ({
     const state = get();
     // Nếu app mất kết nối thì không hiện live
     if (state.connectionStatus !== 'live' && state.connectionStatus !== 'connecting') return false;
-    // Nếu máy không có connectionState ONLINE → không hiện live
+    // ONLINE/UNSTABLE đều có thể hiển thị live.
     const connState = state.connectionStateByMachineId[machineId];
-    if (!connState || connState !== 'ONLINE') return false;
+    if (!connState || (connState !== 'ONLINE' && connState !== 'UNSTABLE')) return false;
     // Nếu dữ liệu quá cũ thì không hiện live
     const freshness = state.dataFreshnessByMachineId[machineId];
     if (freshness !== undefined && freshness > freshnessSec) return false;
-    // Phải đã nhận ít nhất 1 snapshot
+    // Chấp nhận snapshot hoặc đã có telemetry points.
     const snapshot = state.snapshotsByMachineId[machineId];
-    if (!snapshot || Object.keys(snapshot).length === 0) return false;
+    const series = state.telemetrySeriesByMachineId[machineId] || [];
+    if ((!snapshot || Object.keys(snapshot).length === 0) && series.length === 0) return false;
     return true;
   },
 

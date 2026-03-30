@@ -3,7 +3,7 @@ import { alarmsApi } from '@/lib/api/alarms';
 import { useRealtimeStore } from '@/lib/realtime-store';
 import type { MachineEvent } from '@/types';
 
-const DEFAULT_POLL_MS = 30_000; // 30 giây
+const DEFAULT_POLL_MS = 60_000; // Alarm realtime lấy từ SSE, REST chỉ đồng bộ nền
 
 export const useAlarmsData = (pollIntervalMs: number = DEFAULT_POLL_MS) => {
   const { realtimeAlarmEvents } = useRealtimeStore();

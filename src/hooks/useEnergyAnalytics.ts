@@ -18,7 +18,7 @@ const initialState: EnergyAnalyticsState = {
   cost: null,
 };
 
-const DEFAULT_POLL_MS = 15_000; // 15 giây
+const DEFAULT_POLL_MS = 60_000; // Aggregate analytics refresh chậm hơn live SSE
 
 export const useEnergyAnalytics = (query: EnergyAnalyticsQuery, pollIntervalMs: number = DEFAULT_POLL_MS) => {
   const [state, setState] = useState<EnergyAnalyticsState>(initialState);

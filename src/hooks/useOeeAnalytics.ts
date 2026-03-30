@@ -16,7 +16,7 @@ const initialState: OeeAnalyticsState = {
   losses: [],
 };
 
-const DEFAULT_POLL_MS = 15_000; // 15 giây
+const DEFAULT_POLL_MS = 60_000; // Aggregate analytics refresh chậm hơn live SSE
 
 export const useOeeAnalytics = (query: OeeAnalyticsQuery, pollIntervalMs: number = DEFAULT_POLL_MS) => {
   const [state, setState] = useState<OeeAnalyticsState>(initialState);

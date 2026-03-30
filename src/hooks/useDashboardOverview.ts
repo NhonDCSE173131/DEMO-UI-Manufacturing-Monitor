@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { dashboardApi, type DashboardOverviewResponse } from '@/lib/api/dashboard';
 
-const DEFAULT_POLL_MS = 10_000; // 10 giây
+const DEFAULT_POLL_MS = 60_000; // Dashboard live lấy từ SSE, REST chỉ refresh nền
 
 export const useDashboardOverview = (pollIntervalMs: number = DEFAULT_POLL_MS) => {
   const [overview, setOverview] = useState<DashboardOverviewResponse | null>(null);

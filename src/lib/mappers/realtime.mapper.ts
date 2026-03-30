@@ -66,9 +66,10 @@ const toDisplayState = (value: unknown): DisplayStateType | undefined => {
 export const mapRealtimeTelemetryPatch = (payload: Record<string, unknown>): Partial<Machine> => {
   const status = toStatus(payload.status ?? payload.machineStatus ?? payload.operationState ?? payload.operationalState);
   const mode = toMode(payload.mode ?? payload.operationMode);
-  const connectionState = toConnectionState(payload.connectionState ?? payload.connection_status ?? payload.connection);
+  const connectionUnstable = payload.connectionUnstable === true;
+  const connectionState = toConnectionState(payload.connectionState ?? payload.connection_status ?? payload.connection ?? payload.to ?? payload.state);
   const operationalState = toOperationalState(payload.operationalState ?? payload.operational_state);
-  const displayState = toDisplayState(payload.displayState ?? payload.display_state) || connectionState || operationalState;
+  const displayState = toDisplayState(payload.displayState ?? payload.display_state) || (connectionUnstable ? 'UNSTABLE' : connectionState) || operationalState;
 
   const rawTelemetry = status || mode || operationalState
     ? {
@@ -88,7 +89,11 @@ export const mapRealtimeTelemetryPatch = (payload: Record<string, unknown>): Par
     : undefined;
 
   const lastSeenAt = toString(payload.lastSeenAt ?? payload.lastSeen ?? payload.last_seen_at);
-  const dataFreshnessSec = toNumber(payload.dataFreshnessSec ?? payload.data_freshness_sec ?? payload.freshness);
+  const dataFreshnessSec = toNumber(payload.dataFreshnessSec ?? payload.data_freshness_sec ?? payload.freshness ?? payload.freshnessSec);
+  const effectiveConnectionState = connectionUnstable ? 'UNSTABLE' : connectionState;
+  const liveDataAvailable =
+    (effectiveConnectionState === 'ONLINE' || effectiveConnectionState === 'UNSTABLE')
+    && (dataFreshnessSec === undefined || dataFreshnessSec <= 30);
 
   return {
     status,
@@ -101,7 +106,6 @@ export const mapRealtimeTelemetryPatch = (payload: Record<string, unknown>): Par
     machineHealth: toNumber(payload.machineHealth ?? payload.healthScore),
     activeAlarms: toNumber(payload.activeAlarms ?? payload.alarmCount ?? payload.activeAlarmCount),
     temperatureC: toNumber(payload.temperatureC),
-    vibrationMmS: toNumber(payload.vibrationMmS ?? payload.vibrationPct),
     vibrationPct: toNumber(payload.vibrationPct ?? payload.vibrationMmS),
     spindleSpeedRpm: toNumber(payload.spindleRpm ?? payload.spindleSpeedRpm),
     feedRateMmMin: toNumber(payload.feedRateMmMin),
@@ -112,14 +116,15 @@ export const mapRealtimeTelemetryPatch = (payload: Record<string, unknown>): Par
     goodCount: toNumber(payload.goodCount),
     rawTelemetry,
     // Connection / system state fields
-    connectionState,
+    connectionState: effectiveConnectionState,
+    connectionUnstable,
     operationalState,
     displayState,
     connectionReason: toString(payload.connectionReason ?? payload.connection_reason) ?? null,
     connectionScope: toString(payload.connectionScope ?? payload.connection_scope) as Machine['connectionScope'] ?? null,
     lastSeenAt,
     dataFreshnessSec,
-    liveDataAvailable: connectionState === 'ONLINE',
+    liveDataAvailable,
   };
 };
 

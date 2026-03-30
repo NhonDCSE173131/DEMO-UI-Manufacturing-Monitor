@@ -12,7 +12,7 @@ import {
   type MachineImageOverride,
 } from '@/lib/machine-image-overrides';
 
-const DEFAULT_POLL_MS = 30_000; // 30 giây
+const DEFAULT_POLL_MS = 90_000; // SSE là nguồn live chính, REST chỉ refresh nền
 
 export const useMachinesData = (pollIntervalMs: number = DEFAULT_POLL_MS) => {
   const { snapshotsByMachineId, connectionStateByMachineId, lastSeenByMachineId, dataFreshnessByMachineId } = useRealtimeStore();
@@ -22,6 +22,15 @@ export const useMachinesData = (pollIntervalMs: number = DEFAULT_POLL_MS) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const initialLoadDone = useRef(false);
+
+  const computeLiveDataAvailable = (machineId: string, connState?: Machine['connectionState'], fallbackFreshness?: number, unstableFlag?: boolean) => {
+    const freshness = dataFreshnessByMachineId[machineId] ?? fallbackFreshness;
+    const unstable = unstableFlag === true;
+    if (!connState) return false;
+    if (connState !== 'ONLINE' && connState !== 'UNSTABLE') return false;
+    if (unstable) return freshness === undefined || freshness <= 45;
+    return freshness === undefined || freshness <= 30;
+  };
 
   const syncImageOverrides = useCallback(() => {
     const overrides = loadMachineImageOverrides();
@@ -41,7 +50,22 @@ export const useMachinesData = (pollIntervalMs: number = DEFAULT_POLL_MS) => {
       const mergedMachines = apiMachines.map((machine) => ({
         ...machine,
         ...(snapshotsById.get(machine.id) || {}),
-      }));
+      })).map((machine) => {
+        const rtPatch = snapshotsByMachineId[machine.id];
+        const connState = connectionStateByMachineId[machine.id] ?? machine.connectionState;
+        const lastSeenAt = lastSeenByMachineId[machine.id] ?? machine.lastSeenAt;
+        const freshness = dataFreshnessByMachineId[machine.id] ?? machine.dataFreshnessSec;
+        const connectionUnstable = (rtPatch?.connectionUnstable as boolean | undefined) ?? machine.connectionUnstable;
+        return {
+          ...machine,
+          ...(rtPatch || {}),
+          connectionState: connState,
+          lastSeenAt,
+          dataFreshnessSec: freshness,
+          connectionUnstable,
+          liveDataAvailable: computeLiveDataAvailable(machine.id, connState, freshness, connectionUnstable),
+        };
+      });
       const overrides = loadMachineImageOverrides();
       setImageOverrides(overrides);
       setMachines(applyMachineImageOverrides(mergedMachines, overrides));
@@ -56,7 +80,7 @@ export const useMachinesData = (pollIntervalMs: number = DEFAULT_POLL_MS) => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [connectionStateByMachineId, dataFreshnessByMachineId, lastSeenByMachineId, snapshotsByMachineId]);
 
   // Lần đầu load
   useEffect(() => {
@@ -87,7 +111,12 @@ export const useMachinesData = (pollIntervalMs: number = DEFAULT_POLL_MS) => {
         if (rtPatch) Object.assign(updates, rtPatch);
         if (connState) {
           updates.connectionState = connState;
-          updates.liveDataAvailable = connState === 'ONLINE';
+          updates.liveDataAvailable = computeLiveDataAvailable(
+            machine.id,
+            connState,
+            freshness,
+            (rtPatch?.connectionUnstable as boolean | undefined) ?? machine.connectionUnstable,
+          );
         }
         if (lastSeen) updates.lastSeenAt = lastSeen;
         if (freshness !== undefined) updates.dataFreshnessSec = freshness;

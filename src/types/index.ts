@@ -79,6 +79,7 @@ export interface Machine {
   widthOfCutMm?: number;
   materialRemovalRateCm3Min?: number;
   spindleLoadPct?: number;
+  vibrationMmS?: number;
   vibrationPct?: number;
   temperatureC?: number;
   weldingCurrentA?: number;
