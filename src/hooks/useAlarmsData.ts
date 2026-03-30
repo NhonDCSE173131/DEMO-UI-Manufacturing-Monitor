@@ -1,22 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { alarmsApi } from '@/lib/api/alarms';
-import { appEnv } from '@/lib/config/env';
-import { useMachineStore } from '@/lib/store';
 import { useRealtimeStore } from '@/lib/realtime-store';
 import type { MachineEvent } from '@/types';
 
 const DEFAULT_POLL_MS = 30_000; // 30 giây
 
 export const useAlarmsData = (pollIntervalMs: number = DEFAULT_POLL_MS) => {
-  const { events: storeEvents } = useMachineStore();
   const { realtimeAlarmEvents } = useRealtimeStore();
-  const [events, setEvents] = useState<MachineEvent[]>(appEnv.useMock ? storeEvents : []);
-  const [loading, setLoading] = useState(!appEnv.useMock);
+  const [events, setEvents] = useState<MachineEvent[]>([]);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const initialLoadDone = useRef(false);
 
   const load = useCallback(async () => {
-    if (appEnv.useMock) return;
     if (!initialLoadDone.current) setLoading(true);
     setError(null);
     try {
@@ -36,28 +32,22 @@ export const useAlarmsData = (pollIntervalMs: number = DEFAULT_POLL_MS) => {
       setEvents(unique);
       initialLoadDone.current = true;
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Khong tai duoc canh bao');
+      setError(e instanceof Error ? e.message : 'Không tải được cảnh báo');
       if (!initialLoadDone.current) setEvents([]);
     } finally {
       setLoading(false);
     }
   }, []);
 
-
   const acknowledge = useCallback(
     async (alarmId: string, acknowledgedBy = 'ui-operator') => {
-      if (appEnv.useMock) {
-        setEvents((prev) => prev.map((event) => (event.id === alarmId ? { ...event, acknowledged: true } : event)));
-        return;
-      }
-
       const previous = events;
       setEvents((prev) => prev.map((event) => (event.id === alarmId ? { ...event, acknowledged: true, acknowledgedBy } : event)));
       try {
         await alarmsApi.acknowledgeAlarm(alarmId, { acknowledgedBy });
       } catch (e) {
         setEvents(previous);
-        setError(e instanceof Error ? e.message : 'Khong xac nhan duoc canh bao');
+        setError(e instanceof Error ? e.message : 'Không xác nhận được cảnh báo');
       }
     },
     [events],
@@ -78,20 +68,14 @@ export const useAlarmsData = (pollIntervalMs: number = DEFAULT_POLL_MS) => {
 
   // Polling tự động
   useEffect(() => {
-    if (appEnv.useMock || pollIntervalMs <= 0) return;
+    if (pollIntervalMs <= 0) return;
     const timer = setInterval(() => { void load(); }, pollIntervalMs);
     return () => clearInterval(timer);
   }, [load, pollIntervalMs]);
 
-  useEffect(() => {
-    if (appEnv.useMock) {
-      setEvents(storeEvents);
-    }
-  }, [storeEvents]);
-
   // Merge realtime events with REST events
   useEffect(() => {
-    if (!appEnv.useMock && realtimeAlarmEvents.length > 0) {
+    if (realtimeAlarmEvents.length > 0) {
       setEvents((prev) => {
         const merged = [...realtimeAlarmEvents, ...prev];
         const seen = new Set<string>();
@@ -119,7 +103,6 @@ export const useAlarmsData = (pollIntervalMs: number = DEFAULT_POLL_MS) => {
       events,
       loading,
       error,
-      usingMock: appEnv.useMock,
       refresh: load,
       acknowledge,
       acknowledgeMany,
@@ -128,4 +111,3 @@ export const useAlarmsData = (pollIntervalMs: number = DEFAULT_POLL_MS) => {
     [events, loading, error, load, acknowledge, acknowledgeMany, upsertEvent],
   );
 };
-

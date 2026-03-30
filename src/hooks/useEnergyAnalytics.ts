@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { appEnv } from '@/lib/config/env';
 import { energyApi, type EnergyAnalyticsQuery } from '@/lib/api/energy';
 import type { AnalyticsBreakdownItemResponse, AnalyticsSeriesPointResponse, EnergyOverviewResponse } from '@/types/api';
 
@@ -23,12 +22,11 @@ const DEFAULT_POLL_MS = 15_000; // 15 giây
 
 export const useEnergyAnalytics = (query: EnergyAnalyticsQuery, pollIntervalMs: number = DEFAULT_POLL_MS) => {
   const [state, setState] = useState<EnergyAnalyticsState>(initialState);
-  const [loading, setLoading] = useState(!appEnv.useMock);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const initialLoadDone = useRef(false);
 
   const load = useCallback(async () => {
-    if (appEnv.useMock) return;
     if (!initialLoadDone.current) setLoading(true);
     setError(null);
     try {
@@ -42,7 +40,7 @@ export const useEnergyAnalytics = (query: EnergyAnalyticsQuery, pollIntervalMs: 
       setState({ overview, trend, byArea, byMachine, cost });
       initialLoadDone.current = true;
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Khong tai duoc du lieu nang luong');
+      setError(e instanceof Error ? e.message : 'Không tải được dữ liệu năng lượng');
       if (!initialLoadDone.current) setState(initialState);
     } finally {
       setLoading(false);
@@ -55,14 +53,13 @@ export const useEnergyAnalytics = (query: EnergyAnalyticsQuery, pollIntervalMs: 
 
   // Polling tự động
   useEffect(() => {
-    if (appEnv.useMock || pollIntervalMs <= 0) return;
+    if (pollIntervalMs <= 0) return;
     const timer = setInterval(() => { void load(); }, pollIntervalMs);
     return () => clearInterval(timer);
   }, [load, pollIntervalMs]);
 
   return useMemo(
-    () => ({ ...state, loading, error, usingMock: appEnv.useMock, refresh: load }),
+    () => ({ ...state, loading, error, refresh: load }),
     [state, loading, error, load],
   );
 };
-

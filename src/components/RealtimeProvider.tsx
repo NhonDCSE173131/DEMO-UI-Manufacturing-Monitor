@@ -9,7 +9,6 @@
 
 import { useEffect, useRef } from 'react';
 import { buildRealtimeStreamUrl, namedRealtimeEvents, normalizeRealtimeEnvelope } from '@/lib/api/realtime';
-import { appEnv } from '@/lib/config/env';
 import { useRealtimeStore, type TelemetryPoint } from '@/lib/realtime-store';
 import { mapRealtimeTelemetryPatch, pruneUndefinedPatch } from '@/lib/mappers/realtime.mapper';
 import { mapApiAlarmToUi } from '@/lib/mappers/alarm.mapper';
@@ -49,10 +48,6 @@ export function RealtimeProvider() {
 
   useEffect(() => {
     mountedRef.current = true;
-    if (appEnv.useMock) {
-      setConnectionStatus('idle');
-      return;
-    }
 
     const getStoredEventId = () =>
       typeof window !== 'undefined' ? window.sessionStorage.getItem(LAST_EVENT_ID_KEY) : null;

@@ -50,24 +50,14 @@ export function ConnectionBadge({ connectionState, lang = 'vi', size = 'sm' }: C
 
 /**
  * Trả về giá trị live hoặc '--' tùy trạng thái kết nối.
- * @param value Giá trị số từ store
- * @param connectionState Trạng thái kết nối của máy
- * @param formatter Hàm format (vd: formatNumber)
- * @param useMock Đang ở chế độ mock không
+ * Chỉ hiển thị số khi kết nối ONLINE và có giá trị.
  */
 export function liveMetricValue(
   value: number | undefined | null,
   connectionState: ConnectionStateType | undefined,
   formatter: (v: number) => string,
-  useMock: boolean,
 ): string {
-  // Mock mode: luôn hiện số
-  if (useMock) {
-    return value !== undefined && value !== null ? formatter(value) : '--';
-  }
-  // Live mode: chỉ hiện số khi ONLINE và có giá trị
   if (connectionState !== 'ONLINE') return '--';
   if (value === undefined || value === null) return '--';
   return formatter(value);
 }
-

@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { machinesApi } from '@/lib/api/machines';
-import { appEnv } from '@/lib/config/env';
-import { useMachineStore } from '@/lib/store';
 import { useRealtimeStore } from '@/lib/realtime-store';
 import type { Machine, MachineEvent } from '@/types';
 import {
@@ -17,14 +15,11 @@ import {
 const DEFAULT_POLL_MS = 30_000; // 30 giây
 
 export const useMachinesData = (pollIntervalMs: number = DEFAULT_POLL_MS) => {
-  const { machines: storeMachines, events: storeEvents } = useMachineStore();
   const { snapshotsByMachineId, connectionStateByMachineId, lastSeenByMachineId, dataFreshnessByMachineId } = useRealtimeStore();
-  const [machines, setMachines] = useState<Machine[]>(
-    appEnv.useMock ? applyMachineImageOverrides(storeMachines) : [],
-  );
-  const [events, setEvents] = useState<MachineEvent[]>(appEnv.useMock ? storeEvents : []);
+  const [machines, setMachines] = useState<Machine[]>([]);
+  const [events, setEvents] = useState<MachineEvent[]>([]);
   const [imageOverrides, setImageOverrides] = useState<Record<string, MachineImageOverride>>(loadMachineImageOverrides());
-  const [loading, setLoading] = useState(!appEnv.useMock);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const initialLoadDone = useRef(false);
 
@@ -35,7 +30,6 @@ export const useMachinesData = (pollIntervalMs: number = DEFAULT_POLL_MS) => {
   }, []);
 
   const load = useCallback(async () => {
-    if (appEnv.useMock) return;
     if (!initialLoadDone.current) setLoading(true);
     setError(null);
     try {
@@ -71,48 +65,37 @@ export const useMachinesData = (pollIntervalMs: number = DEFAULT_POLL_MS) => {
 
   // Polling tự động - refresh REST data định kỳ
   useEffect(() => {
-    if (appEnv.useMock || pollIntervalMs <= 0) return;
+    if (pollIntervalMs <= 0) return;
     const timer = setInterval(() => { void load(); }, pollIntervalMs);
     return () => clearInterval(timer);
   }, [load, pollIntervalMs]);
 
-  useEffect(() => {
-    if (appEnv.useMock) {
-      const overrides = loadMachineImageOverrides();
-      setImageOverrides(overrides);
-      setMachines(applyMachineImageOverrides(storeMachines, overrides));
-      setEvents(storeEvents);
-    }
-  }, [storeEvents, storeMachines]);
-
   // Apply realtime patches + connection state on top of machines
   useEffect(() => {
-    if (!appEnv.useMock) {
-      const hasSnapshots = Object.keys(snapshotsByMachineId).length > 0;
-      const hasConnStates = Object.keys(connectionStateByMachineId).length > 0;
-      if (!hasSnapshots && !hasConnStates) return;
+    const hasSnapshots = Object.keys(snapshotsByMachineId).length > 0;
+    const hasConnStates = Object.keys(connectionStateByMachineId).length > 0;
+    if (!hasSnapshots && !hasConnStates) return;
 
-      setMachines((prev) =>
-        prev.map((machine) => {
-          const rtPatch = snapshotsByMachineId[machine.id];
-          const connState = connectionStateByMachineId[machine.id] as Machine['connectionState'] | undefined;
-          const lastSeen = lastSeenByMachineId[machine.id];
-          const freshness = dataFreshnessByMachineId[machine.id];
+    setMachines((prev) =>
+      prev.map((machine) => {
+        const rtPatch = snapshotsByMachineId[machine.id];
+        const connState = connectionStateByMachineId[machine.id] as Machine['connectionState'] | undefined;
+        const lastSeen = lastSeenByMachineId[machine.id];
+        const freshness = dataFreshnessByMachineId[machine.id];
 
-          const updates: Partial<Machine> = {};
-          if (rtPatch) Object.assign(updates, rtPatch);
-          if (connState) {
-            updates.connectionState = connState;
-            updates.liveDataAvailable = connState === 'ONLINE';
-          }
-          if (lastSeen) updates.lastSeenAt = lastSeen;
-          if (freshness !== undefined) updates.dataFreshnessSec = freshness;
+        const updates: Partial<Machine> = {};
+        if (rtPatch) Object.assign(updates, rtPatch);
+        if (connState) {
+          updates.connectionState = connState;
+          updates.liveDataAvailable = connState === 'ONLINE';
+        }
+        if (lastSeen) updates.lastSeenAt = lastSeen;
+        if (freshness !== undefined) updates.dataFreshnessSec = freshness;
 
-          if (Object.keys(updates).length === 0) return machine;
-          return { ...machine, ...updates };
-        }),
-      );
-    }
+        if (Object.keys(updates).length === 0) return machine;
+        return { ...machine, ...updates };
+      }),
+    );
   }, [snapshotsByMachineId, connectionStateByMachineId, lastSeenByMachineId, dataFreshnessByMachineId]);
 
   useEffect(() => {
@@ -174,7 +157,6 @@ export const useMachinesData = (pollIntervalMs: number = DEFAULT_POLL_MS) => {
       loading,
       error,
       refresh: load,
-      usingMock: appEnv.useMock,
       applyMachinePatch,
       appendEvent,
       saveMachineImage,

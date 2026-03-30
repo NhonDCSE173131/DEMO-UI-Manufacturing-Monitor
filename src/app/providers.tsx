@@ -5,7 +5,6 @@ import { useMachineStore } from "@/lib/store";
 import Sidebar from "@/components/layout/Sidebar";
 import Header from "@/components/layout/Header";
 import { RealtimeProvider } from "@/components/RealtimeProvider";
-import { MockModeBanner } from "@/components/MockModeBanner";
 
 export function Providers({ children }: { children: ReactNode }) {
   const { sidebarWidth, isSidebarCollapsed } = useMachineStore();
@@ -25,7 +24,6 @@ export function Providers({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-screen bg-industrial-bg text-industrial-text">
-      <MockModeBanner />
       <RealtimeProvider />
       <Sidebar />
       <div

@@ -17,7 +17,6 @@ import { useMemo, useState } from 'react';
 import { buildTimeAxisLabels, getDowntimeUnitLabel, getTimeRangeConfig, normalizeDowntimeMinutes } from '@/lib/time-range-config';
 import { ConnectionBadge, liveMetricValue } from '@/components/ConnectionBadge';
 import { ChartNoData } from '@/components/ChartNoData';
-import { appEnv } from '@/lib/config/env';
 import { useRealtimeStore } from '@/lib/realtime-store';
 
 const toAnalyticsQuery = (range: TimeRange) => {
@@ -48,10 +47,10 @@ const Dashboard = () => {
   const { isMachineLive, telemetrySeriesByMachineId } = useRealtimeStore();
 
   /** Dashboard-level helper: is a machine live? */
-  const machineIsLive = (machineId: string) => appEnv.useMock || isMachineLive(machineId);
+  const machineIsLive = (machineId: string) => isMachineLive(machineId);
   const fmtDash = (machineId: string, val: number | undefined | null, decimals = 1) => {
     const live = machineIsLive(machineId);
-    return liveMetricValue(val, live ? 'ONLINE' : 'OFFLINE', (v) => formatNumber(v, decimals), appEnv.useMock);
+    return liveMetricValue(val, live ? 'ONLINE' : 'OFFLINE', (v) => formatNumber(v, decimals));
   };
 
   const filteredMachines = machines.filter((machine) => {
@@ -623,7 +622,7 @@ const Dashboard = () => {
               <p className="text-xs text-industrial-text-secondary">{machine.area}</p>
               <p className="text-sm font-semibold text-industrial-text mt-1">{machine.code}</p>
               <p className="text-[11px] text-industrial-text-secondary mt-1">{machine.category}</p>
-              {!appEnv.useMock && machine.connectionState && (
+              {machine.connectionState && (
                 <div className="mt-1.5">
                   <ConnectionBadge connectionState={machine.connectionState} lang={selectedLanguage === 'en' ? 'en' : 'vi'} size="xs" />
                 </div>
@@ -658,22 +657,20 @@ const Dashboard = () => {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{
-                        backgroundColor: !machineIsLive(machine.id) && !appEnv.useMock ? '#ef4444' : machine.status === 'RUN' ? '#22c55e' : machine.status === 'FAULT' ? '#ef4444' : '#60a5fa'
+                        backgroundColor: !machineIsLive(machine.id) ? '#ef4444' : machine.status === 'RUN' ? '#22c55e' : machine.status === 'FAULT' ? '#ef4444' : '#60a5fa'
                       }}></div>
                       <p className="font-semibold text-industrial-text truncate group-hover:text-industrial-border transition-colors">{machine.name}</p>
                     </div>
-                    <p className="text-xs text-industrial-text-secondary">{machine.code} · {!machineIsLive(machine.id) && !appEnv.useMock ? (selectedLanguage === 'vi' ? 'Mất kết nối' : 'Offline') : machine.status}</p>
+                    <p className="text-xs text-industrial-text-secondary">{machine.code} · {!machineIsLive(machine.id) ? (selectedLanguage === 'vi' ? 'Mất kết nối' : 'Offline') : machine.status}</p>
                     <div className="flex gap-1 mt-1 flex-wrap items-center">
                       <span className="data-layer-badge raw">{selectedLanguage === 'en' ? 'thô' : 'thô'}</span>
                       <span className="data-layer-badge computed">{selectedLanguage === 'en' ? 'chỉ số' : 'chỉ số'}</span>
                       <span className="data-layer-badge predicted">{selectedLanguage === 'en' ? 'dự báo' : 'dự báo'}</span>
-                      {!appEnv.useMock && (
-                        <ConnectionBadge
-                          connectionState={machine.connectionState}
-                          lang={selectedLanguage === 'en' ? 'en' : 'vi'}
-                          size="xs"
-                        />
-                      )}
+                      <ConnectionBadge
+                        connectionState={machine.connectionState}
+                        lang={selectedLanguage === 'en' ? 'en' : 'vi'}
+                        size="xs"
+                      />
                     </div>
                   </div>
                   <div className="text-right shrink-0">
@@ -688,7 +685,7 @@ const Dashboard = () => {
                   </div>
                   <div className="bg-industrial-bg/50 rounded p-2 text-center">
                     <p className="text-industrial-text-secondary">{(messages.dashboard as any).partsShort || (selectedLanguage === 'en' ? 'Parts' : 'Sản lượng')}</p>
-                    <p className="font-semibold text-industrial-text">{machineIsLive(machine.id) || appEnv.useMock ? machine.partCount : '--'}</p>
+                    <p className="font-semibold text-industrial-text">{machineIsLive(machine.id) ? machine.partCount : '--'}</p>
                   </div>
                   <div className="bg-industrial-bg/50 rounded p-2 text-center">
                     <p className="text-industrial-text-secondary">{(messages.dashboard as any).healthShort || (selectedLanguage === 'en' ? 'Health' : 'Sức khỏe')}</p>
