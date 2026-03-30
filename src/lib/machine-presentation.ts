@@ -1,10 +1,38 @@
 type Locale = 'en' | 'vi';
 
+type LegacyStatus = 'RUN' | 'IDLE' | 'STOP' | 'FAULT' | 'MAINT';
+
 const humanizeToken = (value: string) =>
   value
     .replace(/[_-]+/g, ' ')
     .toLowerCase()
     .replace(/\b\w/g, (char) => char.toUpperCase());
+
+export const resolveMachineDisplayState = (machine: {
+  displayState?: string;
+  connectionState?: string;
+  operationalState?: string;
+  status?: string;
+}): string => {
+  const display = machine.displayState?.toUpperCase();
+  if (display) return display;
+  if (machine.connectionState && machine.connectionState !== 'ONLINE') return machine.connectionState.toUpperCase();
+  if (machine.operationalState) return machine.operationalState.toUpperCase();
+  const status = machine.status?.toUpperCase();
+  if (status === 'RUN') return 'RUNNING';
+  if (status === 'FAULT') return 'EMERGENCY_STOP';
+  if (status === 'STOP') return 'STOPPED';
+  if (status === 'MAINT') return 'MAINTENANCE';
+  return 'IDLE';
+};
+
+export const legacyStatusFromDisplayState = (state: string): LegacyStatus => {
+  if (state === 'RUNNING') return 'RUN';
+  if (state === 'EMERGENCY_STOP') return 'FAULT';
+  if (state === 'STOPPED') return 'STOP';
+  if (state === 'MAINTENANCE') return 'MAINT';
+  return 'IDLE';
+};
 
 export const formatMachineMode = (mode?: string, locale: Locale = 'vi'): string => {
   const map: Record<string, { en: string; vi: string }> = {

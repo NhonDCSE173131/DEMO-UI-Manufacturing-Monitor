@@ -3,10 +3,11 @@
 import { useMachineStore } from '@/lib/store';
 import { useMachinesData } from '@/hooks/useMachinesData';
 import { formatNumber } from '@/lib/utils';
-import { Wrench, AlertTriangle, X, ShieldCheck, CalendarClock, Thermometer, Waves, Cpu } from 'lucide-react';
+import { Wrench, AlertTriangle, X, ShieldCheck, CalendarClock } from 'lucide-react';
 import enMessages from '@/locales/en.json';
 import viMessages from '@/locales/vi.json';
 import { useState } from 'react';
+import { legacyStatusFromDisplayState, resolveMachineDisplayState } from '@/lib/machine-presentation';
 
 const MaintenancePage = () => {
   const { selectedLanguage, resolveMaintenance } = useMachineStore();
@@ -18,18 +19,23 @@ const MaintenancePage = () => {
   const [maintenanceTime, setMaintenanceTime] = useState(new Date().toISOString().slice(0, 16));
   const [maintenanceNotes, setMaintenanceNotes] = useState('');
 
-  const riskMachines = machines
-    .filter((m) => m.maintenanceDueDays <= 14 || (m.predictions?.maintenanceRisk ?? 'low') !== 'low')
-    .sort((a, b) => a.maintenanceDueDays - b.maintenanceDueDays);
+  const dueDays = (value: number | undefined) => value ?? Number.POSITIVE_INFINITY;
+  const safeHealth = (value: number | undefined) => value ?? 0;
+  const safeAnomaly = (value: number | undefined) => value ?? 0;
+  const safePower = (value: number | undefined) => value ?? 0;
 
-  const dueSoon = [...machines].sort((a, b) => a.maintenanceDueDays - b.maintenanceDueDays).slice(0, 6);
+  const riskMachines = machines
+    .filter((m) => dueDays(m.maintenanceDueDays) <= 14 || (m.predictions?.maintenanceRisk ?? 'low') !== 'low')
+    .sort((a, b) => dueDays(a.maintenanceDueDays) - dueDays(b.maintenanceDueDays));
+
+  const dueSoon = [...machines].sort((a, b) => dueDays(a.maintenanceDueDays) - dueDays(b.maintenanceDueDays)).slice(0, 6);
 
   const getComponentBreakdown = (machine: (typeof machines)[number]) => {
     const motor = Math.min(100, Math.round((machine.rawTelemetry?.servoLoadPct ?? 0) * 1.1));
     const spindle = Math.min(100, Math.round((machine.rawTelemetry?.spindleRpm ?? machine.spindleSpeedRpm ?? 0) / 60));
     const vibration = Math.min(100, Math.round(machine.rawTelemetry?.vibrationPct ?? machine.vibrationPct ?? 0));
     const thermal = Math.min(100, Math.round((machine.rawTelemetry?.temperatureC ?? machine.temperatureC ?? 0) * 1.2));
-    const electrical = Math.min(100, Math.round((machine.rawTelemetry?.powerKw ?? machine.powerKw) * 3));
+    const electrical = Math.min(100, Math.round(safePower(machine.rawTelemetry?.powerKw ?? machine.powerKw) * 3));
     return [
       { key: 'motor', label: 'Motor', risk: motor },
       { key: 'spindle', label: 'Spindle', risk: spindle },
@@ -68,7 +74,7 @@ const MaintenancePage = () => {
               <div
                 key={machine.id}
                 className={`p-4 rounded-lg border ${
-                  machine.maintenanceDueDays <= 7
+                  dueDays(machine.maintenanceDueDays) <= 7
                     ? 'bg-industrial-error/10 border-industrial-error/40 pulse-error'
                     : 'bg-industrial-warning/10 border-industrial-warning/30'
                 }`}
@@ -81,18 +87,18 @@ const MaintenancePage = () => {
                     <div>
                       <p className="font-semibold text-industrial-text">{machine.name}</p>
                       <p className="text-xs text-industrial-text-secondary">
-                        {messages.maintenance.daysRemaining}: {machine.maintenanceDueDays} {selectedLanguage === 'en' ? messages.maintenance.days : messages.maintenance.daysUnit}
+                        {messages.maintenance.daysRemaining}: {Number.isFinite(dueDays(machine.maintenanceDueDays)) ? machine.maintenanceDueDays : '--'} {selectedLanguage === 'en' ? messages.maintenance.days : messages.maintenance.daysUnit}
                       </p>
                     </div>
                   </div>
                   <span
                     className={`text-sm font-bold bg-industrial-bg px-2 py-1 rounded border ${
-                      machine.maintenanceDueDays <= 7
+                      dueDays(machine.maintenanceDueDays) <= 7
                         ? 'text-industrial-error border-industrial-error/30'
                         : 'text-industrial-warning border-industrial-warning/30'
                     }`}
                   >
-                    {machine.maintenanceDueDays <= 7 ? messages.maintenance.urgent : messages.maintenance.soon}
+                    {dueDays(machine.maintenanceDueDays) <= 7 ? messages.maintenance.urgent : messages.maintenance.soon}
                   </span>
                 </div>
 
@@ -108,7 +114,7 @@ const MaintenancePage = () => {
                 <div className="grid grid-cols-3 gap-2 text-xs bg-industrial-darker p-2 rounded border border-industrial-border/20">
                   <div>
                     <p className="text-industrial-text-secondary">{messages.maintenance.riskScore}</p>
-                    <p className="font-semibold text-industrial-error">{100 - machine.machineHealth}%</p>
+                    <p className="font-semibold text-industrial-error">{100 - safeHealth(machine.machineHealth)}%</p>
                   </div>
                   <div>
                     <p className="text-industrial-text-secondary">{messages.maintenance.estimatedDowntime}</p>
@@ -137,12 +143,12 @@ const MaintenancePage = () => {
               <p className="text-xs text-industrial-text-secondary mb-2">{machine.code}</p>
               <div className="h-2 rounded-full bg-industrial-card border border-industrial-border/20 overflow-hidden mb-2">
                 <div
-                  className={`h-full ${machine.maintenanceDueDays <= 7 ? 'bg-industrial-error' : machine.maintenanceDueDays <= 14 ? 'bg-industrial-warning' : 'bg-industrial-success'}`}
-                  style={{ width: `${Math.max(8, 100 - machine.maintenanceDueDays)}%` }}
+                  className={`h-full ${dueDays(machine.maintenanceDueDays) <= 7 ? 'bg-industrial-error' : dueDays(machine.maintenanceDueDays) <= 14 ? 'bg-industrial-warning' : 'bg-industrial-success'}`}
+                  style={{ width: `${Math.max(8, 100 - Math.min(100, dueDays(machine.maintenanceDueDays)))}%` }}
                 ></div>
               </div>
-              <p className={`text-xs font-medium ${machine.maintenanceDueDays <= 7 ? 'text-industrial-error' : machine.maintenanceDueDays <= 14 ? 'text-industrial-warning' : 'text-industrial-success'}`}>
-                {machine.maintenanceDueDays} {selectedLanguage === 'en' ? 'days remaining' : 'ngay con lai'}
+              <p className={`text-xs font-medium ${dueDays(machine.maintenanceDueDays) <= 7 ? 'text-industrial-error' : dueDays(machine.maintenanceDueDays) <= 14 ? 'text-industrial-warning' : 'text-industrial-success'}`}>
+                {Number.isFinite(dueDays(machine.maintenanceDueDays)) ? machine.maintenanceDueDays : '--'} {selectedLanguage === 'en' ? 'days remaining' : 'ngay con lai'}
               </p>
             </div>
           ))}
@@ -158,10 +164,11 @@ const MaintenancePage = () => {
           </h3>
           <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2">
             {machines
-              .sort((a, b) => b.machineHealth - a.machineHealth)
+              .sort((a, b) => safeHealth(b.machineHealth) - safeHealth(a.machineHealth))
               .map((machine, idx) => {
-                const riskScore = 100 - machine.machineHealth;
+                const riskScore = 100 - safeHealth(machine.machineHealth);
                 const risk = getRiskLevel(riskScore);
+                const resolvedStatus = legacyStatusFromDisplayState(resolveMachineDisplayState(machine));
                 return (
                   <div key={machine.id} className="p-4 bg-industrial-darker rounded-lg border border-industrial-border/20 hover:bg-industrial-card transition-colors">
                     <div className="flex items-start justify-between mb-3">
@@ -178,7 +185,7 @@ const MaintenancePage = () => {
                         </div>
                       </div>
                       <div className={`px-3 py-1 rounded text-sm font-semibold border ${risk.textClass} ${risk.borderClass} ${risk.bgClass}`}>
-                        {machine.machineHealth}% · {risk.label}
+                        {safeHealth(machine.machineHealth)}% · {risk.label}
                       </div>
                     </div>
 
@@ -186,11 +193,11 @@ const MaintenancePage = () => {
                       <div
                         className="h-full rounded-full transition-all"
                         style={{
-                          width: `${machine.machineHealth}%`,
+                          width: `${safeHealth(machine.machineHealth)}%`,
                           backgroundColor:
-                            machine.machineHealth >= 80
+                            safeHealth(machine.machineHealth) >= 80
                               ? '#22c55e'
-                              : machine.machineHealth >= 60
+                              : safeHealth(machine.machineHealth) >= 60
                               ? '#facc15'
                               : '#ef4444',
                         }}
@@ -200,21 +207,21 @@ const MaintenancePage = () => {
                     <div className="grid grid-cols-3 gap-2 text-xs">
                       <div>
                         <p className="text-industrial-text-secondary">{messages.maintenance.anomalyScore}</p>
-                        <p className={`font-semibold ${machine.anomalyScore > 0.5 ? 'text-industrial-warning' : 'text-industrial-success'}`}>
-                          {formatNumber(machine.anomalyScore * 100, 0)}%
+                        <p className={`font-semibold ${safeAnomaly(machine.anomalyScore) > 0.5 ? 'text-industrial-warning' : 'text-industrial-success'}`}>
+                          {formatNumber(safeAnomaly(machine.anomalyScore) * 100, 0)}%
                         </p>
                       </div>
                       <div>
                         <p className="text-industrial-text-secondary">{messages.maintenance.maintenanceDue}</p>
-                        <p className={`font-semibold ${machine.maintenanceDueDays <= 7 ? 'text-industrial-error animate-pulse' : 'text-industrial-text'}`}>
-                          {machine.maintenanceDueDays}d
+                        <p className={`font-semibold ${dueDays(machine.maintenanceDueDays) <= 7 ? 'text-industrial-error animate-pulse' : 'text-industrial-text'}`}>
+                          {Number.isFinite(dueDays(machine.maintenanceDueDays)) ? `${machine.maintenanceDueDays}d` : '--'}
                         </p>
                       </div>
                       <div>
                         <p className="text-industrial-text-secondary">{messages.machine.status}</p>
                         <p className="font-semibold text-industrial-text flex items-center gap-1">
-                          <span className="w-2 h-2 rounded-full" style={{backgroundColor: machine.status === 'RUN' ? '#22c55e' : machine.status === 'FAULT' ? '#ef4444' : '#60a5fa'}}></span>
-                          {machine.status}
+                          <span className="w-2 h-2 rounded-full" style={{backgroundColor: resolvedStatus === 'RUN' ? '#22c55e' : resolvedStatus === 'FAULT' ? '#ef4444' : '#60a5fa'}}></span>
+                          {resolvedStatus}
                         </p>
                       </div>
                     </div>
@@ -233,9 +240,9 @@ const MaintenancePage = () => {
           <div className="space-y-4">
             {machines.map((machine) => {
               const riskFactors = [];
-              if (machine.anomalyScore > 0.7) riskFactors.push({text: messages.maintenance.highAnomalyScore, level: 'warning'});
-              if (machine.maintenanceDueDays <= 7) riskFactors.push({text: messages.maintenance.maintenanceOverdue, level: 'error'});
-              if (machine.machineHealth < 60) riskFactors.push({text: messages.maintenance.poorMachineHealth, level: 'error'});
+              if (safeAnomaly(machine.anomalyScore) > 0.7) riskFactors.push({text: messages.maintenance.highAnomalyScore, level: 'warning'});
+              if (dueDays(machine.maintenanceDueDays) <= 7) riskFactors.push({text: messages.maintenance.maintenanceOverdue, level: 'error'});
+              if (safeHealth(machine.machineHealth) < 60) riskFactors.push({text: messages.maintenance.poorMachineHealth, level: 'error'});
               if (machine.temperatureC && machine.temperatureC > 75) riskFactors.push({text: messages.maintenance.highTemperature, level: 'warning'});
               if (machine.vibrationPct && machine.vibrationPct > 60) riskFactors.push({text: messages.maintenance.highVibration, level: 'error'});
 
@@ -274,7 +281,7 @@ const MaintenancePage = () => {
 
                   <div className="mt-3 p-3 rounded-lg bg-industrial-dark/40 border border-industrial-border/20 text-xs text-industrial-text-secondary">
                     <p className="font-semibold text-industrial-text mb-1">{selectedLanguage === 'en' ? 'Observed vs Recommended' : 'Quan sát và khuyến nghị'}</p>
-                    <p>{selectedLanguage === 'en' ? 'Observed:' : 'Quan sát:'} {formatNumber(machine.rawTelemetry?.temperatureC ?? machine.temperatureC ?? 0, 1)}C · {formatNumber(machine.rawTelemetry?.vibrationPct ?? machine.vibrationPct ?? 0, 0)}% vibration · {formatNumber(machine.rawTelemetry?.powerKw ?? machine.powerKw, 1)}kW</p>
+                    <p>{selectedLanguage === 'en' ? 'Observed:' : 'Quan sát:'} {formatNumber(machine.rawTelemetry?.temperatureC ?? machine.temperatureC ?? 0, 1)}C · {formatNumber(machine.rawTelemetry?.vibrationPct ?? machine.vibrationPct ?? 0, 0)}% vibration · {formatNumber(safePower(machine.rawTelemetry?.powerKw ?? machine.powerKw), 1)}kW</p>
                     <p>{selectedLanguage === 'en' ? 'Recommended:' : 'Khuyến nghị:'} {machine.predictions?.recommendation || messages.maintenance.fullInspection}</p>
                   </div>
                 </div>

@@ -1,4 +1,4 @@
-import type { Machine, ConnectionStateType, OperationalStateType } from '@/types';
+import type { Machine, ConnectionStateType, DisplayStateType, OperationalStateType } from '@/types';
 
 const toNumber = (value: unknown): number | undefined => {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -39,6 +39,7 @@ const toConnectionState = (value: unknown): ConnectionStateType | undefined => {
   if (raw === 'ONLINE') return 'ONLINE';
   if (raw === 'STALE' || raw === 'DEGRADED') return 'STALE';
   if (raw === 'OFFLINE') return 'OFFLINE';
+  if (raw === 'UNSTABLE') return 'UNSTABLE';
   return undefined;
 };
 
@@ -54,22 +55,34 @@ const toOperationalState = (value: unknown): OperationalStateType | undefined =>
   return undefined;
 };
 
+const toDisplayState = (value: unknown): DisplayStateType | undefined => {
+  const op = toOperationalState(value);
+  if (op) return op;
+  const conn = toConnectionState(value);
+  if (conn) return conn;
+  return undefined;
+};
+
 export const mapRealtimeTelemetryPatch = (payload: Record<string, unknown>): Partial<Machine> => {
   const status = toStatus(payload.status ?? payload.machineStatus ?? payload.operationState ?? payload.operationalState);
   const mode = toMode(payload.mode ?? payload.operationMode);
   const connectionState = toConnectionState(payload.connectionState ?? payload.connection_status ?? payload.connection);
   const operationalState = toOperationalState(payload.operationalState ?? payload.operational_state);
+  const displayState = toDisplayState(payload.displayState ?? payload.display_state) || connectionState || operationalState;
 
-  const rawTelemetry = status && mode
+  const rawTelemetry = status || mode || operationalState
     ? {
-        state: status,
+        operationalState,
         mode,
         powerKw: toNumber(payload.powerKw ?? payload.currentPowerKw),
         temperatureC: toNumber(payload.temperatureC),
-        vibrationPct: toNumber(payload.vibrationMmS ?? payload.vibrationPct),
+        vibrationMmS: toNumber(payload.vibrationMmS ?? payload.vibrationPct),
+        vibrationPct: toNumber(payload.vibrationPct ?? payload.vibrationMmS),
         spindleRpm: toNumber(payload.spindleRpm ?? payload.spindleSpeedRpm),
         feedRateMmMin: toNumber(payload.feedRateMmMin),
+        spindleLoadPct: toNumber(payload.spindleLoadPct),
         servoLoadPct: toNumber(payload.servoLoadPct),
+        cycleTimeSec: toNumber(payload.cycleTimeSec),
         programName: toString(payload.programName ?? payload.currentProgram),
       }
     : undefined;
@@ -88,7 +101,8 @@ export const mapRealtimeTelemetryPatch = (payload: Record<string, unknown>): Par
     machineHealth: toNumber(payload.machineHealth ?? payload.healthScore),
     activeAlarms: toNumber(payload.activeAlarms ?? payload.alarmCount ?? payload.activeAlarmCount),
     temperatureC: toNumber(payload.temperatureC),
-    vibrationPct: toNumber(payload.vibrationMmS ?? payload.vibrationPct),
+    vibrationMmS: toNumber(payload.vibrationMmS ?? payload.vibrationPct),
+    vibrationPct: toNumber(payload.vibrationPct ?? payload.vibrationMmS),
     spindleSpeedRpm: toNumber(payload.spindleRpm ?? payload.spindleSpeedRpm),
     feedRateMmMin: toNumber(payload.feedRateMmMin),
     servoLoadPct: toNumber(payload.servoLoadPct),
@@ -100,7 +114,7 @@ export const mapRealtimeTelemetryPatch = (payload: Record<string, unknown>): Par
     // Connection / system state fields
     connectionState,
     operationalState,
-    displayState: toString(payload.displayState ?? payload.display_state),
+    displayState,
     connectionReason: toString(payload.connectionReason ?? payload.connection_reason) ?? null,
     connectionScope: toString(payload.connectionScope ?? payload.connection_scope) as Machine['connectionScope'] ?? null,
     lastSeenAt,

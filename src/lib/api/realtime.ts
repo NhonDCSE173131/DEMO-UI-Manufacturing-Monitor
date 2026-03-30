@@ -43,7 +43,7 @@ export const buildRealtimeStreamUrl = (params?: {
   topics?: RealtimeTopic[];
   sinceEventId?: string;
 }) => {
-  const url = new URL('/api/v1/realtime/stream', appEnv.apiBaseUrl);
+  const url = new URL('/api/v1/realtime/stream/v2', appEnv.apiBaseUrl);
   if (params?.machineId) {
     url.searchParams.set('machineId', params.machineId);
   }

@@ -53,6 +53,35 @@ const Dashboard = () => {
     return liveMetricValue(val, live ? 'ONLINE' : 'OFFLINE', (v) => formatNumber(v, decimals));
   };
 
+  const resolveDisplayState = (machine: (typeof machines)[number]) => {
+    const display = machine.displayState?.toUpperCase();
+    if (display === 'ONLINE' || display === 'STALE' || display === 'OFFLINE' || display === 'UNSTABLE') return display;
+    if (display === 'RUNNING' || display === 'IDLE' || display === 'WARMUP' || display === 'STOPPED' || display === 'EMERGENCY_STOP' || display === 'MAINTENANCE') return display;
+    if (machine.connectionState && machine.connectionState !== 'ONLINE') return machine.connectionState;
+    if (machine.operationalState) return machine.operationalState;
+    if (machine.status === 'RUN') return 'RUNNING';
+    if (machine.status === 'FAULT') return 'EMERGENCY_STOP';
+    if (machine.status === 'STOP') return 'STOPPED';
+    if (machine.status === 'MAINT') return 'MAINTENANCE';
+    return 'IDLE';
+  };
+
+  const statusFromDisplayState = (state: string) => {
+    if (state === 'RUNNING') return 'RUN';
+    if (state === 'EMERGENCY_STOP') return 'FAULT';
+    if (state === 'STOPPED') return 'STOP';
+    if (state === 'MAINTENANCE') return 'MAINT';
+    return 'IDLE';
+  };
+
+  const getMachineDisplayLabel = (machine: (typeof machines)[number]) => {
+    const state = resolveDisplayState(machine);
+    if (state === 'OFFLINE') return selectedLanguage === 'vi' ? 'Mất kết nối' : 'Offline';
+    if (state === 'STALE') return selectedLanguage === 'vi' ? 'Dữ liệu cũ' : 'Stale';
+    if (state === 'UNSTABLE') return selectedLanguage === 'vi' ? 'Không ổn định' : 'Unstable';
+    return statusFromDisplayState(state);
+  };
+
   const filteredMachines = machines.filter((machine) => {
     const matchArea = selectedAreaFilter === 'all' || machine.area === selectedAreaFilter;
     const matchStatus = selectedStatusFilter === 'all' || machine.status === selectedStatusFilter;
@@ -66,20 +95,20 @@ const Dashboard = () => {
   // machines đã được SSE patch liên tục bởi RealtimeProvider → useMachinesData,
   // nên giá trị luôn phản ánh data mới nhất BE gửi.
   const totalPower = overview?.plantPowerKw
-    ?? (displayMachines.length > 0 ? displayMachines.reduce((sum, m) => sum + m.powerKw, 0) : undefined);
+    ?? (displayMachines.length > 0 ? displayMachines.reduce((sum, m) => sum + (m.powerKw ?? 0), 0) : undefined);
   const totalEnergy = overview?.todayEnergyKwh
-    ?? (displayMachines.length > 0 ? displayMachines.reduce((sum, m) => sum + m.energyTodayKwh, 0) : undefined);
+    ?? (displayMachines.length > 0 ? displayMachines.reduce((sum, m) => sum + (m.energyTodayKwh ?? 0), 0) : undefined);
   const avgOEE = overview?.todayOee ?? oeeAnalytics.overview?.oee ?? oeeAnalytics.overview?.avgOee
     ?? (displayMachines.length > 0
-      ? displayMachines.reduce((sum, m) => sum + m.oee, 0) / displayMachines.length
+      ? displayMachines.reduce((sum, m) => sum + (m.oee ?? 0), 0) / displayMachines.length
       : undefined);
 
   const totalProduction = oeeAnalytics.overview?.totalOutput
-    ?? (displayMachines.length > 0 ? displayMachines.reduce((sum, m) => sum + m.partCount, 0) : undefined);
+    ?? (displayMachines.length > 0 ? displayMachines.reduce((sum, m) => sum + (m.partCount ?? 0), 0) : undefined);
   const totalGood = oeeAnalytics.overview?.goodOutput
-    ?? (displayMachines.length > 0 ? displayMachines.reduce((sum, m) => sum + m.goodCount, 0) : undefined);
+    ?? (displayMachines.length > 0 ? displayMachines.reduce((sum, m) => sum + (m.goodCount ?? 0), 0) : undefined);
   const totalNG = oeeAnalytics.overview?.rejectOutput
-    ?? (displayMachines.length > 0 ? displayMachines.reduce((sum, m) => sum + m.ngCount, 0) : undefined);
+    ?? (displayMachines.length > 0 ? displayMachines.reduce((sum, m) => sum + (m.ngCount ?? 0), 0) : undefined);
 
   const productionDataValid =
     totalProduction != null && totalGood != null && totalNG != null
@@ -88,12 +117,14 @@ const Dashboard = () => {
     && totalGood + totalNG <= totalProduction + 1;
 
   const runningMachines = overview?.runningMachines
-    ?? displayMachines.filter((m) => m.status === 'RUN').length;
-  const faultMachines = displayMachines.filter((m) => m.status === 'FAULT').length;
-  const idleMachines = displayMachines.filter((m) => m.status === 'IDLE').length;
+    ?? displayMachines.filter((m) => statusFromDisplayState(resolveDisplayState(m)) === 'RUN').length;
+  const faultMachines = displayMachines.filter((m) => statusFromDisplayState(resolveDisplayState(m)) === 'FAULT').length;
+  const idleMachines = displayMachines.filter((m) => statusFromDisplayState(resolveDisplayState(m)) === 'IDLE').length;
   const criticalEvents = events.filter(e => e.severity === 'critical');
   const warningEvents = events.filter(e => e.severity === 'warning');
-  const riskMachines = displayMachines.filter(m => m.maintenanceDueDays <= 14).sort((a,b) => a.maintenanceDueDays - b.maintenanceDueDays);
+  const riskMachines = displayMachines
+    .filter((m) => (m.maintenanceDueDays ?? Number.POSITIVE_INFINITY) <= 14)
+    .sort((a, b) => (a.maintenanceDueDays ?? Number.POSITIVE_INFINITY) - (b.maintenanceDueDays ?? Number.POSITIVE_INFINITY));
 
   // ─── Chart data ─────────────────────────────────────────────
   const energyRangeConfig = getTimeRangeConfig(energyRange);
@@ -109,7 +140,9 @@ const Dashboard = () => {
         label: String(m.machineCode || m.machineName || m.label || m.key || m.id || ''),
         value: Number(m.oee ?? m.value ?? 0),
       }))
-    : displayMachines.map((m) => ({ label: m.code, value: m.oee }));
+    : displayMachines
+        .filter((m) => m.oee !== undefined)
+        .map((m) => ({ label: m.code, value: Number(m.oee) }));
   const hasOeeChartData = oeeChartData.length > 0;
 
   // Power pie: ưu tiên analytics API → fallback về machines (SSE-patched)
@@ -119,8 +152,11 @@ const Dashboard = () => {
         const label = String(m.machineCode || m.machineName || m.label || m.key || m.id || '');
         return { value, name: `${label} (${value}${powerRangeConfig.energyUnit})` };
       })
-    : displayMachines.map((m) => {
-        const rawValue = powerRangeConfig.energyUnit === 'kW' ? m.powerKw : (m.powerKw * powerRangeConfig.totalMinutes) / 60;
+    : displayMachines
+      .filter((m) => m.powerKw !== undefined)
+      .map((m) => {
+        const power = m.powerKw ?? 0;
+        const rawValue = powerRangeConfig.energyUnit === 'kW' ? power : (power * powerRangeConfig.totalMinutes) / 60;
         const value = Math.round(rawValue * 10) / 10;
         return { value, name: `${m.code} (${value}${powerRangeConfig.energyUnit})` };
       });
@@ -502,7 +538,7 @@ const Dashboard = () => {
             <div className="space-y-3">
               {riskMachines.map(machine => (
                 <Link href={`/maintenance`} key={machine.id}>
-                  <div className={`p-3 rounded-lg border transition-colors hover:bg-industrial-card/50 ${machine.maintenanceDueDays <= 7 ? 'bg-industrial-error/5 border-industrial-error/30' : 'bg-industrial-warning/5 border-industrial-warning/30'}`}>
+                  <div className={`p-3 rounded-lg border transition-colors hover:bg-industrial-card/50 ${(machine.maintenanceDueDays ?? Number.POSITIVE_INFINITY) <= 7 ? 'bg-industrial-error/5 border-industrial-error/30' : 'bg-industrial-warning/5 border-industrial-warning/30'}`}>
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
                         <div className="w-8 h-8 rounded-full overflow-hidden border border-industrial-border/30 shrink-0">
@@ -513,17 +549,17 @@ const Dashboard = () => {
                           <p className="text-xs text-industrial-text-secondary">{machine.code}</p>
                         </div>
                       </div>
-                      <span className={`text-lg font-bold ${machine.maintenanceDueDays <= 7 ? 'text-industrial-error animate-pulse' : 'text-industrial-warning'}`}>
-                        {machine.maintenanceDueDays}{selectedLanguage === 'en' ? 'd' : 'ngày'}
+                      <span className={`text-lg font-bold ${(machine.maintenanceDueDays ?? Number.POSITIVE_INFINITY) <= 7 ? 'text-industrial-error animate-pulse' : 'text-industrial-warning'}`}>
+                        {machine.maintenanceDueDays ?? '--'}{selectedLanguage === 'en' ? 'd' : 'ngày'}
                       </span>
                     </div>
                     <div className="h-1.5 rounded-full bg-industrial-card overflow-hidden">
                       <div className="h-full rounded-full transition-all" style={{
-                        width: `${Math.max(5, machine.machineHealth)}%`,
-                        backgroundColor: machine.machineHealth >= 80 ? '#22c55e' : machine.machineHealth >= 60 ? '#facc15' : '#ef4444'
+                        width: `${Math.max(5, machine.machineHealth ?? 0)}%`,
+                        backgroundColor: (machine.machineHealth ?? 0) >= 80 ? '#22c55e' : (machine.machineHealth ?? 0) >= 60 ? '#facc15' : '#ef4444'
                       }}></div>
                     </div>
-                    <p className="text-xs text-industrial-text-secondary mt-1">{(messages.dashboard as any).health || (selectedLanguage === 'en' ? 'Health' : 'Sức khỏe')}: {machine.machineHealth}%</p>
+                    <p className="text-xs text-industrial-text-secondary mt-1">{(messages.dashboard as any).health || (selectedLanguage === 'en' ? 'Health' : 'Sức khỏe')}: {machine.machineHealth ?? '--'}%</p>
                   </div>
                 </Link>
               ))}
@@ -628,7 +664,7 @@ const Dashboard = () => {
                 </div>
               )}
               <div className="mt-2 h-1.5 rounded-full bg-industrial-card overflow-hidden">
-                <div className={`h-full ${machine.status === 'RUN' ? 'bg-industrial-success' : machine.status === 'FAULT' ? 'bg-industrial-error' : 'bg-industrial-info'}`} style={{ width: `${Math.max(10, machine.machineHealth)}%` }}></div>
+                <div className={`h-full ${statusFromDisplayState(resolveDisplayState(machine)) === 'RUN' ? 'bg-industrial-success' : statusFromDisplayState(resolveDisplayState(machine)) === 'FAULT' ? 'bg-industrial-error' : 'bg-industrial-info'}`} style={{ width: `${Math.max(10, machine.machineHealth ?? 0)}%` }}></div>
               </div>
             </div>
           ))}
@@ -657,11 +693,11 @@ const Dashboard = () => {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{
-                        backgroundColor: !machineIsLive(machine.id) ? '#ef4444' : machine.status === 'RUN' ? '#22c55e' : machine.status === 'FAULT' ? '#ef4444' : '#60a5fa'
+                        backgroundColor: !machineIsLive(machine.id) ? '#ef4444' : statusFromDisplayState(resolveDisplayState(machine)) === 'RUN' ? '#22c55e' : statusFromDisplayState(resolveDisplayState(machine)) === 'FAULT' ? '#ef4444' : '#60a5fa'
                       }}></div>
                       <p className="font-semibold text-industrial-text truncate group-hover:text-industrial-border transition-colors">{machine.name}</p>
                     </div>
-                    <p className="text-xs text-industrial-text-secondary">{machine.code} · {!machineIsLive(machine.id) ? (selectedLanguage === 'vi' ? 'Mất kết nối' : 'Offline') : machine.status}</p>
+                    <p className="text-xs text-industrial-text-secondary">{machine.code} · {getMachineDisplayLabel(machine)}</p>
                     <div className="flex gap-1 mt-1 flex-wrap items-center">
                       <span className="data-layer-badge raw">{selectedLanguage === 'en' ? 'thô' : 'thô'}</span>
                       <span className="data-layer-badge computed">{selectedLanguage === 'en' ? 'chỉ số' : 'chỉ số'}</span>
@@ -674,7 +710,7 @@ const Dashboard = () => {
                     </div>
                   </div>
                   <div className="text-right shrink-0">
-                    <p className="text-xl font-bold" style={{ color: machineIsLive(machine.id) ? (machine.oee >= 85 ? '#22c55e' : machine.oee >= 60 ? '#facc15' : '#ef4444') : '#6b7280' }}>{fmtDash(machine.id, machine.oee, 0)}%</p>
+                    <p className="text-xl font-bold" style={{ color: machineIsLive(machine.id) ? ((machine.oee ?? 0) >= 85 ? '#22c55e' : (machine.oee ?? 0) >= 60 ? '#facc15' : '#ef4444') : '#6b7280' }}>{fmtDash(machine.id, machine.oee, 0)}%</p>
                     <p className="text-[10px] text-industrial-text-secondary">OEE</p>
                   </div>
                 </div>
@@ -685,15 +721,15 @@ const Dashboard = () => {
                   </div>
                   <div className="bg-industrial-bg/50 rounded p-2 text-center">
                     <p className="text-industrial-text-secondary">{(messages.dashboard as any).partsShort || (selectedLanguage === 'en' ? 'Parts' : 'Sản lượng')}</p>
-                    <p className="font-semibold text-industrial-text">{machineIsLive(machine.id) ? machine.partCount : '--'}</p>
+                    <p className="font-semibold text-industrial-text">{machineIsLive(machine.id) ? (machine.partCount ?? '--') : '--'}</p>
                   </div>
                   <div className="bg-industrial-bg/50 rounded p-2 text-center">
                     <p className="text-industrial-text-secondary">{(messages.dashboard as any).healthShort || (selectedLanguage === 'en' ? 'Health' : 'Sức khỏe')}</p>
-                    <p className="font-semibold" style={{ color: machineIsLive(machine.id) ? (machine.machineHealth >= 80 ? '#22c55e' : machine.machineHealth >= 60 ? '#facc15' : '#ef4444') : '#6b7280' }}>{fmtDash(machine.id, machine.machineHealth, 0)}%</p>
+                    <p className="font-semibold" style={{ color: machineIsLive(machine.id) ? ((machine.machineHealth ?? 0) >= 80 ? '#22c55e' : (machine.machineHealth ?? 0) >= 60 ? '#facc15' : '#ef4444') : '#6b7280' }}>{fmtDash(machine.id, machine.machineHealth, 0)}%</p>
                   </div>
                   <div className="bg-industrial-bg/50 rounded p-2 text-center">
                     <p className="text-industrial-text-secondary">{(messages.dashboard as any).alarmsShort || (selectedLanguage === 'en' ? 'Alarms' : 'Cảnh báo')}</p>
-                    <p className={`font-semibold ${machine.activeAlarms > 0 ? 'text-industrial-error' : 'text-industrial-success'}`}>{machine.activeAlarms}</p>
+                    <p className={`font-semibold ${(machine.activeAlarms ?? 0) > 0 ? 'text-industrial-error' : 'text-industrial-success'}`}>{machine.activeAlarms ?? 0}</p>
                   </div>
                 </div>
               </div>

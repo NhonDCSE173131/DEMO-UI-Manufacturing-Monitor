@@ -31,7 +31,7 @@ export interface MachineStore {
 }
 
 const mergeRawTelemetry = (machine: Machine, overrides: Partial<RawTelemetry> = {}): RawTelemetry => ({
-  state: overrides.state ?? machine.rawTelemetry?.state ?? machine.status,
+  operationalState: overrides.operationalState ?? machine.rawTelemetry?.operationalState ?? machine.operationalState,
   mode: overrides.mode ?? machine.rawTelemetry?.mode ?? machine.mode,
   powerKw: overrides.powerKw ?? machine.rawTelemetry?.powerKw ?? machine.powerKw,
   temperatureC: overrides.temperatureC ?? machine.rawTelemetry?.temperatureC ?? machine.temperatureC,
@@ -41,6 +41,14 @@ const mergeRawTelemetry = (machine: Machine, overrides: Partial<RawTelemetry> = 
   servoLoadPct: overrides.servoLoadPct ?? machine.rawTelemetry?.servoLoadPct ?? machine.servoLoadPct,
   programName: overrides.programName ?? machine.rawTelemetry?.programName ?? machine.currentProgram,
 });
+
+const statusToOperationalState = (status: Machine['status']): RawTelemetry['operationalState'] => {
+  if (status === 'RUN') return 'RUNNING';
+  if (status === 'FAULT') return 'EMERGENCY_STOP';
+  if (status === 'STOP') return 'STOPPED';
+  if (status === 'MAINT') return 'MAINTENANCE';
+  return 'IDLE';
+};
 
 export const useMachineStore = create<MachineStore>()((set, get) => ({
   machines: [],
@@ -103,7 +111,7 @@ export const useMachineStore = create<MachineStore>()((set, get) => ({
                 anomalyScore: 0,
                 status: m.status === 'FAULT' ? 'IDLE' : m.status,
                 activeAlarms: 0,
-                rawTelemetry: mergeRawTelemetry(m, { state: m.status === 'FAULT' ? 'IDLE' : m.status }),
+                rawTelemetry: mergeRawTelemetry(m, { operationalState: statusToOperationalState(m.status === 'FAULT' ? 'IDLE' : m.status) }),
                 computedMetrics: { ...m.computedMetrics, healthScore: 100 },
                 predictions: {
                   ...m.predictions,
@@ -164,7 +172,7 @@ export const useMachineStore = create<MachineStore>()((set, get) => ({
               activeAlarms: 0,
               status: m.status === 'FAULT' ? 'IDLE' : m.status,
               anomalyScore: 0,
-              rawTelemetry: mergeRawTelemetry(m, { state: m.status === 'FAULT' ? 'IDLE' : m.status }),
+              rawTelemetry: mergeRawTelemetry(m, { operationalState: statusToOperationalState(m.status === 'FAULT' ? 'IDLE' : m.status) }),
             }
           : m
       ),

@@ -31,6 +31,12 @@ const labels: Record<ConnectionStateType, { vi: string; en: string; color: strin
     color: 'bg-red-500/15 text-red-400 border-red-500/30',
     dot: 'bg-red-400',
   },
+  UNSTABLE: {
+    vi: 'Không ổn định',
+    en: 'Unstable',
+    color: 'bg-orange-500/15 text-orange-300 border-orange-500/30',
+    dot: 'bg-orange-300',
+  },
 };
 
 export function ConnectionBadge({ connectionState, lang = 'vi', size = 'sm' }: ConnectionBadgeProps) {

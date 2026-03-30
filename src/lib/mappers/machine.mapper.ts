@@ -1,4 +1,4 @@
-import type { Machine, ConnectionStateType, OperationalStateType } from '@/types';
+import type { Machine, ConnectionStateType, DisplayStateType, OperationalStateType } from '@/types';
 
 const asNumber = (...values: unknown[]): number | undefined => {
   for (const value of values) {
@@ -60,6 +60,7 @@ const normalizeConnectionState = (value?: string): ConnectionStateType | undefin
     case 'STALE':
     case 'DEGRADED': return 'STALE';
     case 'OFFLINE': return 'OFFLINE';
+    case 'UNSTABLE': return 'UNSTABLE';
     default: return undefined;
   }
 };
@@ -77,6 +78,15 @@ const normalizeOperationalState = (value?: string): OperationalStateType | undef
   }
 };
 
+const normalizeDisplayState = (value?: string): DisplayStateType | undefined => {
+  if (!value) return undefined;
+  const op = normalizeOperationalState(value);
+  if (op) return op;
+  const conn = normalizeConnectionState(value);
+  if (conn) return conn;
+  return undefined;
+};
+
 // Map a partial backend payload to the current UI Machine model with safe defaults.
 export const mapApiMachineToUi = (input: Partial<Machine> & Record<string, unknown>): Machine => {
   const id = String(asString(input.id, input.machineId, input.code, input.machineCode) || `M-${Date.now()}`);
@@ -84,11 +94,17 @@ export const mapApiMachineToUi = (input: Partial<Machine> & Record<string, unkno
   const name = asString(input.name, input.machineName, input.displayName, code) || code;
   const status = normalizeStatus(asString(input.status, input.machineState, input.operationalState));
   const mode = normalizeMode(asString(input.mode, input.operationMode));
+  const fallbackOperationalState: OperationalStateType =
+    status === 'RUN' ? 'RUNNING'
+      : status === 'FAULT' ? 'EMERGENCY_STOP'
+      : status === 'STOP' ? 'STOPPED'
+      : status === 'MAINT' ? 'MAINTENANCE'
+      : 'IDLE';
 
   // Connection state fields
   const connectionState = normalizeConnectionState(asString(input.connectionState, input.connection_status));
   const operationalState = normalizeOperationalState(asString(input.operationalState, input.operational_state));
-  const displayState = asString(input.displayState, input.display_state);
+  const displayState = normalizeDisplayState(asString(input.displayState, input.display_state)) || connectionState || operationalState;
   const connectionReason = asString(input.connectionReason, input.connection_reason) ?? null;
   const connectionScope = asString(input.connectionScope, input.connection_scope) as Machine['connectionScope'] ?? null;
   const lastSeenAt = asString(input.lastSeenAt, input.lastSeen, input.last_seen_at);
@@ -114,23 +130,22 @@ export const mapApiMachineToUi = (input: Partial<Machine> & Record<string, unkno
     status,
     mode,
     image: asString(input.image, input.imageUrl, input.thumbnailUrl) || '/img/may.png',
-    // Giữ default 0 để type-safe, nhưng UI sẽ check với store helpers để biết có dữ liệu thật hay không
-    oee: oee ?? 0,
-    availability: availability ?? 0,
-    performance: performance ?? 0,
-    quality: quality ?? 0,
-    powerKw: asNumber(input.powerKw, input.currentPowerKw, input.plantPowerKw) ?? 0,
-    energyTodayKwh: asNumber(input.energyTodayKwh, input.todayEnergyKwh) ?? 0,
-    energyMonthKwh: asNumber(input.energyMonthKwh, input.monthEnergyKwh) ?? 0,
-    cycleTimeSec: asNumber(input.cycleTimeSec, input.actualCycleTimeSec) ?? 0,
-    idealCycleTimeSec: asNumber(input.idealCycleTimeSec) ?? 0,
-    partCount: asNumber(input.partCount, input.totalParts, input.outputCount) ?? 0,
-    goodCount: asNumber(input.goodCount, input.goodParts) ?? 0,
-    ngCount: asNumber(input.ngCount, input.rejectCount, input.rejectParts, input.badParts) ?? 0,
-    machineHealth: asNumber(input.machineHealth, input.healthScore, input.maintenanceHealthScore) ?? 0,
-    maintenanceDueDays: asNumber(input.maintenanceDueDays, input.daysToMaintenance) ?? 0,
-    anomalyScore: asNumber(input.anomalyScore, input.abnormalScore) ?? 0,
-    activeAlarms: asNumber(input.activeAlarms, input.alarmCount, input.activeAlarmCount) ?? 0,
+    oee,
+    availability,
+    performance,
+    quality,
+    powerKw: asNumber(input.powerKw, input.currentPowerKw, input.plantPowerKw),
+    energyTodayKwh: asNumber(input.energyTodayKwh, input.todayEnergyKwh),
+    energyMonthKwh: asNumber(input.energyMonthKwh, input.monthEnergyKwh),
+    cycleTimeSec: asNumber(input.cycleTimeSec, input.actualCycleTimeSec),
+    idealCycleTimeSec: asNumber(input.idealCycleTimeSec),
+    partCount: asNumber(input.partCount, input.totalParts, input.outputCount),
+    goodCount: asNumber(input.goodCount, input.goodParts),
+    ngCount: asNumber(input.ngCount, input.rejectCount, input.rejectParts, input.badParts),
+    machineHealth: asNumber(input.machineHealth, input.healthScore, input.maintenanceHealthScore),
+    maintenanceDueDays: asNumber(input.maintenanceDueDays, input.daysToMaintenance),
+    anomalyScore: asNumber(input.anomalyScore, input.abnormalScore),
+    activeAlarms: asNumber(input.activeAlarms, input.alarmCount, input.activeAlarmCount),
     toolLifeRemainingPct: asNumber(input.toolLifeRemainingPct, input.remainingToolLifePct),
     spindleSpeedRpm: asNumber(input.spindleSpeedRpm, input.spindleRpm),
     feedRateMmMin: asNumber(input.feedRateMmMin),
@@ -140,7 +155,8 @@ export const mapApiMachineToUi = (input: Partial<Machine> & Record<string, unkno
     widthOfCutMm: asNumber(input.widthOfCutMm),
     materialRemovalRateCm3Min: asNumber(input.materialRemovalRateCm3Min),
     spindleLoadPct: asNumber(input.spindleLoadPct),
-    vibrationPct: asNumber(input.vibrationMmS, input.vibrationPct),
+    vibrationMmS: asNumber(input.vibrationMmS, input.vibrationPct),
+    vibrationPct: asNumber(input.vibrationPct, input.vibrationMmS),
     temperatureC: asNumber(input.temperatureC),
     weldingCurrentA: asNumber(input.weldingCurrentA),
     servoLoadPct: asNumber(input.servoLoadPct),
@@ -148,14 +164,17 @@ export const mapApiMachineToUi = (input: Partial<Machine> & Record<string, unkno
     area: asString(input.area, input.areaName, input.lineName) || 'Xưởng chính',
     rawTelemetry:
       (input.rawTelemetry as Machine['rawTelemetry']) || {
-        state: status,
+        operationalState: operationalState || fallbackOperationalState,
         mode,
         powerKw: asNumber(input.powerKw, input.currentPowerKw),
         temperatureC: asNumber(input.temperatureC),
-        vibrationPct: asNumber(input.vibrationMmS, input.vibrationPct),
+        vibrationMmS: asNumber(input.vibrationMmS, input.vibrationPct),
+        vibrationPct: asNumber(input.vibrationPct, input.vibrationMmS),
         spindleRpm: asNumber(input.spindleSpeedRpm, input.spindleRpm),
         feedRateMmMin: asNumber(input.feedRateMmMin),
+        spindleLoadPct: asNumber(input.spindleLoadPct),
         servoLoadPct: asNumber(input.servoLoadPct),
+        cycleTimeSec: asNumber(input.cycleTimeSec, input.actualCycleTimeSec),
         programName: asString(input.currentProgram, input.programName),
       },
     computedMetrics: input.computedMetrics as Machine['computedMetrics'],

@@ -5,7 +5,7 @@ import { useRealtimeStore } from '@/lib/realtime-store';
 import { useMachinesData } from '@/hooks/useMachinesData';
 import { useEnergyAnalytics } from '@/hooks/useEnergyAnalytics';
 import { formatNumber } from '@/lib/utils';
-import { Zap, Activity } from 'lucide-react';
+import { Activity } from 'lucide-react';
 import ReactECharts from 'echarts-for-react';
 import enMessages from '@/locales/en.json';
 import viMessages from '@/locales/vi.json';
@@ -13,6 +13,7 @@ import { TimeRangeSelector, TimeRange } from '@/components/TimeRangeSelector';
 import { useMemo, useState } from 'react';
 import { buildTimeAxisLabels, getTimeRangeConfig } from '@/lib/time-range-config';
 import { ChartNoData } from '@/components/ChartNoData';
+import { legacyStatusFromDisplayState, resolveMachineDisplayState } from '@/lib/machine-presentation';
 
 const toAnalyticsQuery = (range: TimeRange, selectedAreaFilter: string, selectedStatusFilter: string) => {
   const rangeConfig = getTimeRangeConfig(range);
@@ -28,7 +29,7 @@ const toAnalyticsQuery = (range: TimeRange, selectedAreaFilter: string, selected
 
 const EnergyPage = () => {
   const { selectedLanguage, selectedAreaFilter, selectedStatusFilter } = useMachineStore();
-  const { connectionStatus, telemetrySeriesByMachineId } = useRealtimeStore();
+  const { telemetrySeriesByMachineId } = useRealtimeStore();
   const { machines, loading: machinesLoading, error: machinesError } = useMachinesData();
   const messages = selectedLanguage === 'en' ? enMessages : viMessages;
   const [distributionRange, setDistributionRange] = useState<TimeRange>('1h');
@@ -47,16 +48,17 @@ const EnergyPage = () => {
 
   const filteredMachines = machines.filter((machine) => {
     const matchArea = selectedAreaFilter === 'all' || machine.area === selectedAreaFilter;
-    const matchStatus = selectedStatusFilter === 'all' || machine.status === selectedStatusFilter;
+    const resolvedStatus = legacyStatusFromDisplayState(resolveMachineDisplayState(machine));
+    const matchStatus = selectedStatusFilter === 'all' || resolvedStatus === selectedStatusFilter;
     return matchArea && matchStatus;
   });
 
   const displayMachines = filteredMachines.length > 0 ? filteredMachines : machines;
 
-  const totalPowerNow = Number(overview?.currentPowerKw ?? overview?.plantPowerKw ?? displayMachines.reduce((sum, m) => sum + m.powerKw, 0));
-  const peakPower = Math.max(...displayMachines.map((m) => m.powerKw)) * 1.2;
-  const totalEnergyToday = Number(overview?.todayEnergyKwh ?? displayMachines.reduce((sum, m) => sum + m.energyTodayKwh, 0));
-  const totalEnergyMonth = Number(overview?.monthEnergyKwh ?? displayMachines.reduce((sum, m) => sum + m.energyMonthKwh, 0));
+  const totalPowerNow = Number(overview?.currentPowerKw ?? overview?.plantPowerKw ?? displayMachines.reduce((sum, m) => sum + (m.powerKw ?? 0), 0));
+  const peakPower = (displayMachines.length > 0 ? Math.max(...displayMachines.map((m) => m.powerKw ?? 0)) : 0) * 1.2;
+  const totalEnergyToday = Number(overview?.todayEnergyKwh ?? displayMachines.reduce((sum, m) => sum + (m.energyTodayKwh ?? 0), 0));
+  const totalEnergyMonth = Number(overview?.monthEnergyKwh ?? displayMachines.reduce((sum, m) => sum + (m.energyMonthKwh ?? 0), 0));
   const costPerKwh = Number(trendAnalytics.cost?.costPerKwh ?? overview?.costPerKwh ?? 0.12);
   const costToday = Number(trendAnalytics.cost?.todayCost ?? overview?.todayCost ?? (totalEnergyToday * costPerKwh));
   const costMonth = Number(trendAnalytics.cost?.monthCost ?? overview?.monthCost ?? (totalEnergyMonth * costPerKwh));
@@ -67,12 +69,13 @@ const EnergyPage = () => {
   const trendUnit = trendConfig.energyUnit;
   const trendAxisLabels = buildTimeAxisLabels(trendRange, localeKey);
 
-  const normalizeEnergyValue = (powerKw: number, range: TimeRange) => {
+  const normalizeEnergyValue = (powerKw: number | undefined, range: TimeRange) => {
     const config = getTimeRangeConfig(range);
+    const safePower = powerKw ?? 0;
     if (config.energyUnit === 'kW') {
-      return powerKw;
+      return safePower;
     }
-    return (powerKw * config.totalMinutes) / 60;
+    return (safePower * config.totalMinutes) / 60;
   };
 
   const pieChartOption = {
@@ -185,7 +188,7 @@ const EnergyPage = () => {
         return acc;
       }, {})
     : displayMachines.reduce((acc: Record<string, number>, machine) => {
-        acc[machine.area] = (acc[machine.area] || 0) + machine.energyTodayKwh;
+        acc[machine.area] = (acc[machine.area] || 0) + (machine.energyTodayKwh ?? 0);
         return acc;
       }, {});
 
@@ -350,7 +353,9 @@ const EnergyPage = () => {
           </h3>
           <div className="space-y-4 max-h-64 overflow-y-auto pr-2">
             {displayMachines.map((machine) => {
-              const percentage = totalPowerNow > 0 ? (machine.powerKw / totalPowerNow) * 100 : 0;
+              const machinePower = machine.powerKw ?? 0;
+              const resolvedStatus = legacyStatusFromDisplayState(resolveMachineDisplayState(machine));
+              const percentage = totalPowerNow > 0 ? (machinePower / totalPowerNow) * 100 : 0;
               return (
                 <div key={machine.id} className="bg-industrial-darker p-3 rounded-lg border border-industrial-border/10">
                   <div className="flex justify-between items-center mb-2">
@@ -365,7 +370,7 @@ const EnergyPage = () => {
                     </div>
                     <div className="text-right">
                       <p className="text-sm font-bold text-industrial-border">
-                        {formatNumber(machine.powerKw, 1)} {messages.energy.powerKw}
+                        {formatNumber(machinePower, 1)} {messages.energy.powerKw}
                       </p>
                       <p className="text-xs text-industrial-text-secondary">{formatNumber(percentage, 0)}%</p>
                     </div>
@@ -376,9 +381,9 @@ const EnergyPage = () => {
                       style={{
                         width: `${percentage}%`,
                         backgroundColor:
-                          machine.status === 'RUN'
+                          resolvedStatus === 'RUN'
                             ? '#22c55e'
-                            : machine.status === 'FAULT'
+                            : resolvedStatus === 'FAULT'
                             ? '#ef4444'
                             : '#60a5fa',
                       }}

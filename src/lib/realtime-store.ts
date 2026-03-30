@@ -10,7 +10,7 @@
  */
 
 import { create } from 'zustand';
-import type { Machine, MachineEvent } from '@/types';
+import type { ConnectionStateType, Machine, MachineEvent } from '@/types';
 
 export type ConnectionStatus = 'idle' | 'connecting' | 'live' | 'degraded' | 'disconnected';
 
@@ -19,10 +19,30 @@ export interface TelemetryPoint {
   timestamp: string;
   powerKw?: number;
   temperatureC?: number;
+  vibrationPct?: number;
   vibrationMmS?: number;
+  spindleSpeedRpm?: number;
+  spindleRpm?: number;
+  feedRateMmMin?: number;
+  spindleLoadPct?: number;
+  servoLoadPct?: number;
+  cycleTimeSec?: number;
+  idealCycleTimeSec?: number;
+  cuttingSpeedMMin?: number;
+  depthOfCutMm?: number;
+  feedPerToothMm?: number;
+  widthOfCutMm?: number;
+  materialRemovalRateCm3Min?: number;
+  weldingCurrentA?: number;
   outputCount?: number;
+  partCount?: number;
   goodCount?: number;
   rejectCount?: number;
+  ngCount?: number;
+  machineState?: string;
+  connectionStatus?: string;
+  gapDetected?: boolean;
+  missing?: boolean;
   oee?: number;
   availability?: number;
   performance?: number;
@@ -53,7 +73,7 @@ interface RealtimeState {
   realtimeAlarmEvents: MachineEvent[];
 
   /** Connection state per machine: ONLINE/STALE/OFFLINE/UNSTABLE */
-  connectionStateByMachineId: Record<string, string>;
+  connectionStateByMachineId: Record<string, ConnectionStateType>;
 
   /** Last seen timestamp per machine */
   lastSeenByMachineId: Record<string, string>;
@@ -73,7 +93,7 @@ interface RealtimeState {
   seedTelemetrySeries: (machineId: string, points: TelemetryPoint[]) => void;
   addAlarmEvent: (event: MachineEvent) => void;
   getSeriesWindow: (machineId: string, fromMs: number) => TelemetryPoint[];
-  setMachineConnectionState: (machineId: string, state: string) => void;
+  setMachineConnectionState: (machineId: string, state: ConnectionStateType) => void;
   setMachineLastSeen: (machineId: string, ts: string) => void;
   setMachineDataFreshness: (machineId: string, freshnessSec: number) => void;
 

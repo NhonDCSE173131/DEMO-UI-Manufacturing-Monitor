@@ -14,6 +14,7 @@ import { TimeRangeSelector, TimeRange } from '@/components/TimeRangeSelector';
 import { useMemo, useState } from 'react';
 import { buildTimeAxisLabels, getDowntimeUnitLabel, getTimeRangeConfig, normalizeDowntimeMinutes } from '@/lib/time-range-config';
 import { ChartNoData } from '@/components/ChartNoData';
+import { legacyStatusFromDisplayState, resolveMachineDisplayState } from '@/lib/machine-presentation';
 
 const toOeeQuery = (range: TimeRange, selectedShift: string, selectedAreaFilter: string, selectedStatusFilter: string) => {
   const rangeConfig = getTimeRangeConfig(range);
@@ -35,7 +36,7 @@ const OEEPage = () => {
     selectedAreaFilter,
     selectedStatusFilter,
   } = useMachineStore();
-  const { connectionStatus, telemetrySeriesByMachineId } = useRealtimeStore();
+  const { telemetrySeriesByMachineId } = useRealtimeStore();
   // ...existing code...
   const { machines, loading: machinesLoading, error: machinesError } = useMachinesData();
   const { events, loading: alarmsLoading, error: alarmsError } = useAlarmsData();
@@ -50,7 +51,8 @@ const OEEPage = () => {
 
   const filteredMachines = machines.filter((machine) => {
     const matchArea = selectedAreaFilter === 'all' || machine.area === selectedAreaFilter;
-    const matchStatus = selectedStatusFilter === 'all' || machine.status === selectedStatusFilter;
+    const resolvedStatus = legacyStatusFromDisplayState(resolveMachineDisplayState(machine));
+    const matchStatus = selectedStatusFilter === 'all' || resolvedStatus === selectedStatusFilter;
     return matchArea && matchStatus;
   });
   const displayMachines = filteredMachines.length > 0 ? filteredMachines : machines;
@@ -67,16 +69,18 @@ const OEEPage = () => {
   const trendAxisLabels = buildTimeAxisLabels(oeeTrendRange, localeKey);
   const paretoUnitLabel = getDowntimeUnitLabel(paretoRange, localeKey);
 
-  const avgOEE = Math.round(oeeAnalytics.overview?.avgOee ?? displayMachines.reduce((sum, m) => sum + (m.computedMetrics?.oee ?? m.oee), 0) / Math.max(1, displayMachines.length));
-  const avgAvailability = Math.round(oeeAnalytics.overview?.avgAvailability ?? displayMachines.reduce((sum, m) => sum + (m.computedMetrics?.availability ?? m.availability), 0) / Math.max(1, displayMachines.length));
-  const avgPerformance = Math.round(oeeAnalytics.overview?.avgPerformance ?? displayMachines.reduce((sum, m) => sum + (m.computedMetrics?.performance ?? m.performance), 0) / Math.max(1, displayMachines.length));
-  const avgQuality = Math.round(oeeAnalytics.overview?.avgQuality ?? displayMachines.reduce((sum, m) => sum + (m.computedMetrics?.quality ?? m.quality), 0) / Math.max(1, displayMachines.length));
+  const safeMetric = (value: number | undefined) => value ?? 0;
+
+  const avgOEE = Math.round(oeeAnalytics.overview?.avgOee ?? displayMachines.reduce((sum, m) => sum + safeMetric(m.computedMetrics?.oee ?? m.oee), 0) / Math.max(1, displayMachines.length));
+  const avgAvailability = Math.round(oeeAnalytics.overview?.avgAvailability ?? displayMachines.reduce((sum, m) => sum + safeMetric(m.computedMetrics?.availability ?? m.availability), 0) / Math.max(1, displayMachines.length));
+  const avgPerformance = Math.round(oeeAnalytics.overview?.avgPerformance ?? displayMachines.reduce((sum, m) => sum + safeMetric(m.computedMetrics?.performance ?? m.performance), 0) / Math.max(1, displayMachines.length));
+  const avgQuality = Math.round(oeeAnalytics.overview?.avgQuality ?? displayMachines.reduce((sum, m) => sum + safeMetric(m.computedMetrics?.quality ?? m.quality), 0) / Math.max(1, displayMachines.length));
 
   const oeeTarget = 85;
   const oeeDelta = avgOEE - oeeTarget;
-  const totalOutput = Math.round(oeeAnalytics.overview?.totalOutput ?? displayMachines.reduce((sum, machine) => sum + machine.partCount, 0));
-  const goodOutput = Math.round(oeeAnalytics.overview?.goodOutput ?? displayMachines.reduce((sum, machine) => sum + machine.goodCount, 0));
-  const rejectOutput = Math.round(oeeAnalytics.overview?.rejectOutput ?? displayMachines.reduce((sum, machine) => sum + machine.ngCount, 0));
+  const totalOutput = Math.round(oeeAnalytics.overview?.totalOutput ?? displayMachines.reduce((sum, machine) => sum + safeMetric(machine.partCount), 0));
+  const goodOutput = Math.round(oeeAnalytics.overview?.goodOutput ?? displayMachines.reduce((sum, machine) => sum + safeMetric(machine.goodCount), 0));
+  const rejectOutput = Math.round(oeeAnalytics.overview?.rejectOutput ?? displayMachines.reduce((sum, machine) => sum + safeMetric(machine.ngCount), 0));
   const targetOutput = Math.round(oeeAnalytics.overview?.targetOutput ?? (totalOutput * 1.08));
 
   const oeeTrendFromApi =
@@ -439,7 +443,7 @@ const OEEPage = () => {
         </h3>
         <div className="space-y-5">
           {displayMachines
-            .sort((a, b) => b.oee - a.oee)
+            .sort((a, b) => safeMetric(b.oee) - safeMetric(a.oee))
             .map((machine) => (
               <div key={machine.id} className="bg-industrial-darker/50 p-3 rounded-lg border border-industrial-border/10">
                 <div className="flex justify-between items-center mb-2">
@@ -453,15 +457,15 @@ const OEEPage = () => {
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="font-bold text-2xl" style={{color: machine.oee >= oeeTarget ? '#22c55e' : '#facc15'}}>{machine.oee}%</p>
+                    <p className="font-bold text-2xl" style={{color: safeMetric(machine.oee) >= oeeTarget ? '#22c55e' : '#facc15'}}>{safeMetric(machine.oee)}%</p>
                   </div>
                 </div>
                 <div className="h-2.5 rounded-full bg-industrial-card border border-industrial-border/20 overflow-hidden">
                   <div
                     className="h-full rounded-full transition-all duration-1000"
                     style={{
-                      width: `${Math.min(machine.oee, 100)}%`,
-                      backgroundColor: machine.oee >= oeeTarget ? '#22c55e' : '#facc15',
+                      width: `${Math.min(safeMetric(machine.oee), 100)}%`,
+                      backgroundColor: safeMetric(machine.oee) >= oeeTarget ? '#22c55e' : '#facc15',
                     }}
                   ></div>
                 </div>

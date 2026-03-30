@@ -18,14 +18,33 @@ export interface PageResponse<T> {
 export interface TelemetryPointResponse {
   timestamp?: string;
   ts?: string;
+  bucketEnd?: string;
   powerKw?: number;
   temperatureC?: number;
+  vibrationMmS?: number;
   vibrationPct?: number;
+  spindleSpeedRpm?: number;
   spindleRpm?: number;
   feedRateMmMin?: number;
   spindleLoadPct?: number;
   servoLoadPct?: number;
   cycleTimeSec?: number;
+  idealCycleTimeSec?: number;
+  cuttingSpeedMMin?: number;
+  depthOfCutMm?: number;
+  feedPerToothMm?: number;
+  widthOfCutMm?: number;
+  materialRemovalRateCm3Min?: number;
+  weldingCurrentA?: number;
+  outputCount?: number;
+  partCount?: number;
+  goodCount?: number;
+  rejectCount?: number;
+  ngCount?: number;
+  machineState?: string;
+  connectionStatus?: string;
+  gapDetected?: boolean;
+  missing?: boolean;
   oee?: number;
   availability?: number;
   performance?: number;
@@ -37,6 +56,7 @@ export interface TelemetrySeriesResponse {
   points: TelemetryPointResponse[];
   interval?: string;
   aggregation?: string;
+  requestedMetrics?: string[];
 }
 
 export interface AnalyticsSeriesPointResponse {
@@ -191,5 +211,6 @@ export interface MachineHistoryQuery {
   to: string;
   interval?: 'raw' | '1m' | '5m' | '15m' | '30m' | '1h' | '6h' | '12h' | '1d';
   aggregation?: 'avg' | 'min' | 'max' | 'last';
+  metrics?: string[];
 }
 

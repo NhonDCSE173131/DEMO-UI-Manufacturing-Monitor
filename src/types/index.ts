@@ -1,7 +1,8 @@
 export type MachineStatus = 'RUN' | 'IDLE' | 'STOP' | 'FAULT' | 'MAINT';
 export type MachineMode = 'AUTO' | 'MANUAL' | 'SETUP';
-export type ConnectionStateType = 'ONLINE' | 'STALE' | 'OFFLINE';
+export type ConnectionStateType = 'ONLINE' | 'STALE' | 'OFFLINE' | 'UNSTABLE';
 export type OperationalStateType = 'RUNNING' | 'IDLE' | 'WARMUP' | 'STOPPED' | 'EMERGENCY_STOP' | 'MAINTENANCE';
+export type DisplayStateType = OperationalStateType | ConnectionStateType;
 export type MachineType = 'robot-welding' | 'cnc-milling' | 'cnc-turning' | 'pick-place' | 'cutting-polishing';
 export type MachineCategory = 'robot_only' | 'cnc_machine' | 'robot_cnc_cell';
 export type EventType = 'info' | 'warning' | 'critical' | 'downtime' | 'maintenance';
@@ -9,14 +10,17 @@ export type EventSeverity = 'info' | 'warning' | 'critical';
 export type EventPlanType = 'planned' | 'unplanned';
 
 export interface RawTelemetry {
-  state: MachineStatus;
-  mode: MachineMode;
+  operationalState?: OperationalStateType;
+  mode?: MachineMode | string;
   powerKw?: number;
   temperatureC?: number;
   vibrationPct?: number;
+  vibrationMmS?: number;
   spindleRpm?: number;
   feedRateMmMin?: number;
+  spindleLoadPct?: number;
   servoLoadPct?: number;
+  cycleTimeSec?: number;
   programName?: string;
 }
 
@@ -50,22 +54,22 @@ export interface Machine {
   status: MachineStatus;
   mode: MachineMode;
   image: string;
-  oee: number;
-  availability: number;
-  performance: number;
-  quality: number;
-  powerKw: number;
-  energyTodayKwh: number;
-  energyMonthKwh: number;
-  cycleTimeSec: number;
-  idealCycleTimeSec: number;
-  partCount: number;
-  goodCount: number;
-  ngCount: number;
-  machineHealth: number;
-  maintenanceDueDays: number;
-  anomalyScore: number;
-  activeAlarms: number;
+  oee?: number;
+  availability?: number;
+  performance?: number;
+  quality?: number;
+  powerKw?: number;
+  energyTodayKwh?: number;
+  energyMonthKwh?: number;
+  cycleTimeSec?: number;
+  idealCycleTimeSec?: number;
+  partCount?: number;
+  goodCount?: number;
+  ngCount?: number;
+  machineHealth?: number;
+  maintenanceDueDays?: number;
+  anomalyScore?: number;
+  activeAlarms?: number;
   toolLifeRemainingPct?: number;
   spindleSpeedRpm?: number;
   feedRateMmMin?: number;
@@ -90,7 +94,7 @@ export interface Machine {
   lastSeenAt?: string;
   dataFreshnessSec?: number;
   operationalState?: OperationalStateType;
-  displayState?: string;
+  displayState?: DisplayStateType;
   connectionReason?: string | null;
   connectionScope?: 'PLC' | 'COLLECTOR' | 'BE_WATCHDOG' | null;
   liveDataAvailable?: boolean;

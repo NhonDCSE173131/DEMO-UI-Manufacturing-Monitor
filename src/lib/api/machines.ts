@@ -54,6 +54,8 @@ export const machinesApi = {
       to: query.to,
       interval: query.interval,
       aggregation: query.aggregation,
+      metrics: query.metrics?.join(','),
+      requestedMetrics: query.metrics?.join(','),
     });
     const data = await apiClient.get<TelemetrySeriesResponse>(`/api/v1/machines/${machineId}/telemetry/history${queryString}`);
     return data.points || [];

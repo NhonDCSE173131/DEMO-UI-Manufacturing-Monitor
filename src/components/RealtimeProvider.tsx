@@ -121,10 +121,30 @@ export function RealtimeProvider() {
                 timestamp: ts,
                 powerKw: toSafeNumber(payload.powerKw ?? payload.currentPowerKw),
                 temperatureC: toSafeNumber(payload.temperatureC),
+                vibrationPct: toSafeNumber(payload.vibrationPct),
                 vibrationMmS: toSafeNumber(payload.vibrationMmS ?? payload.vibrationPct),
+                spindleSpeedRpm: toSafeNumber(payload.spindleSpeedRpm ?? payload.spindleRpm),
+                spindleRpm: toSafeNumber(payload.spindleRpm ?? payload.spindleSpeedRpm),
+                feedRateMmMin: toSafeNumber(payload.feedRateMmMin),
+                spindleLoadPct: toSafeNumber(payload.spindleLoadPct),
+                servoLoadPct: toSafeNumber(payload.servoLoadPct),
+                cycleTimeSec: toSafeNumber(payload.cycleTimeSec),
+                idealCycleTimeSec: toSafeNumber(payload.idealCycleTimeSec),
+                cuttingSpeedMMin: toSafeNumber(payload.cuttingSpeedMMin),
+                depthOfCutMm: toSafeNumber(payload.depthOfCutMm),
+                feedPerToothMm: toSafeNumber(payload.feedPerToothMm),
+                widthOfCutMm: toSafeNumber(payload.widthOfCutMm),
+                materialRemovalRateCm3Min: toSafeNumber(payload.materialRemovalRateCm3Min),
+                weldingCurrentA: toSafeNumber(payload.weldingCurrentA),
                 outputCount: toSafeNumber(payload.outputCount ?? payload.partCount),
+                partCount: toSafeNumber(payload.partCount ?? payload.outputCount),
                 goodCount: toSafeNumber(payload.goodCount),
                 rejectCount: toSafeNumber(payload.rejectCount ?? payload.ngCount),
+                ngCount: toSafeNumber(payload.ngCount ?? payload.rejectCount),
+                machineState: typeof payload.machineState === 'string' ? payload.machineState : undefined,
+                connectionStatus: typeof payload.connectionStatus === 'string' ? payload.connectionStatus : undefined,
+                gapDetected: typeof payload.gapDetected === 'boolean' ? payload.gapDetected : undefined,
+                missing: typeof payload.missing === 'boolean' ? payload.missing : undefined,
                 oee: toSafeNumber(payload.oee),
                 availability: toSafeNumber(payload.availability),
                 performance: toSafeNumber(payload.performance),
@@ -134,10 +154,26 @@ export function RealtimeProvider() {
               const hasNumericMetric =
                 typeof point.powerKw === 'number' ||
                 typeof point.temperatureC === 'number' ||
+                typeof point.vibrationPct === 'number' ||
                 typeof point.vibrationMmS === 'number' ||
+                typeof point.spindleSpeedRpm === 'number' ||
+                typeof point.spindleRpm === 'number' ||
+                typeof point.feedRateMmMin === 'number' ||
+                typeof point.spindleLoadPct === 'number' ||
+                typeof point.servoLoadPct === 'number' ||
+                typeof point.cycleTimeSec === 'number' ||
+                typeof point.idealCycleTimeSec === 'number' ||
+                typeof point.cuttingSpeedMMin === 'number' ||
+                typeof point.depthOfCutMm === 'number' ||
+                typeof point.feedPerToothMm === 'number' ||
+                typeof point.widthOfCutMm === 'number' ||
+                typeof point.materialRemovalRateCm3Min === 'number' ||
+                typeof point.weldingCurrentA === 'number' ||
                 typeof point.outputCount === 'number' ||
+                typeof point.partCount === 'number' ||
                 typeof point.goodCount === 'number' ||
                 typeof point.rejectCount === 'number' ||
+                typeof point.ngCount === 'number' ||
                 typeof point.oee === 'number' ||
                 typeof point.availability === 'number' ||
                 typeof point.performance === 'number' ||
