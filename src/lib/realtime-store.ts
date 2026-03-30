@@ -157,27 +157,34 @@ export const useRealtimeStore = create<RealtimeState>()((set, get) => ({
 
   isMachineLive: (machineId, freshnessSec = 30) => {
     const state = get();
-    // App phải ở trạng thái live
-    if (state.connectionStatus !== 'live') return false;
-    // Máy phải online
+    // App phải ở trạng thái live hoặc connecting
+    if (state.connectionStatus !== 'live' && state.connectionStatus !== 'connecting') return false;
+    // Quan trọng: Máy phải có connectionState = ONLINE
+    // Nếu không có thông tin connectionState → coi như OFFLINE (chưa có dữ liệu PLC)
     const connState = state.connectionStateByMachineId[machineId];
-    if (connState && connState !== 'ONLINE') return false;
+    if (!connState || connState !== 'ONLINE') return false;
     // Dữ liệu phải còn fresh
     const freshness = state.dataFreshnessByMachineId[machineId];
-    if (freshness && freshness > freshnessSec) return false;
+    if (freshness !== undefined && freshness > freshnessSec) return false;
+    // Phải đã nhận ít nhất 1 snapshot cho máy này
+    const snapshot = state.snapshotsByMachineId[machineId];
+    if (!snapshot || Object.keys(snapshot).length === 0) return false;
     return true;
   },
 
   shouldShowLiveMetrics: (machineId, freshnessSec = 30) => {
     const state = get();
     // Nếu app mất kết nối thì không hiện live
-    if (state.connectionStatus !== 'live') return false;
-    // Nếu máy không online thì không hiện live
+    if (state.connectionStatus !== 'live' && state.connectionStatus !== 'connecting') return false;
+    // Nếu máy không có connectionState ONLINE → không hiện live
     const connState = state.connectionStateByMachineId[machineId];
-    if (connState && connState !== 'ONLINE') return false;
+    if (!connState || connState !== 'ONLINE') return false;
     // Nếu dữ liệu quá cũ thì không hiện live
     const freshness = state.dataFreshnessByMachineId[machineId];
-    if (freshness && freshness > freshnessSec) return false;
+    if (freshness !== undefined && freshness > freshnessSec) return false;
+    // Phải đã nhận ít nhất 1 snapshot
+    const snapshot = state.snapshotsByMachineId[machineId];
+    if (!snapshot || Object.keys(snapshot).length === 0) return false;
     return true;
   },
 

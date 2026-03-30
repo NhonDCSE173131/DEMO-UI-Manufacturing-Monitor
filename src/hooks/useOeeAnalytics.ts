@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { appEnv } from '@/lib/config/env';
 import { oeeApi, type OeeAnalyticsQuery } from '@/lib/api/oee';
 import type { AnalyticsBreakdownItemResponse, AnalyticsSeriesPointResponse, OeeOverviewResponse } from '@/types/api';
@@ -17,14 +17,17 @@ const initialState: OeeAnalyticsState = {
   losses: [],
 };
 
-export const useOeeAnalytics = (query: OeeAnalyticsQuery) => {
+const DEFAULT_POLL_MS = 15_000; // 15 giây
+
+export const useOeeAnalytics = (query: OeeAnalyticsQuery, pollIntervalMs: number = DEFAULT_POLL_MS) => {
   const [state, setState] = useState<OeeAnalyticsState>(initialState);
   const [loading, setLoading] = useState(!appEnv.useMock);
   const [error, setError] = useState<string | null>(null);
+  const initialLoadDone = useRef(false);
 
   const load = useCallback(async () => {
 	if (appEnv.useMock) return;
-	setLoading(true);
+	if (!initialLoadDone.current) setLoading(true);
 	setError(null);
 	try {
 	  const [overview, trend, byMachine, losses] = await Promise.all([
@@ -34,9 +37,10 @@ export const useOeeAnalytics = (query: OeeAnalyticsQuery) => {
 		oeeApi.getLosses(query),
 	  ]);
 	  setState({ overview, trend, byMachine, losses });
+	  initialLoadDone.current = true;
 	} catch (e) {
 	  setError(e instanceof Error ? e.message : 'Khong tai duoc du lieu OEE');
-	  setState(initialState);
+	  if (!initialLoadDone.current) setState(initialState);
 	} finally {
 	  setLoading(false);
 	}
@@ -45,6 +49,13 @@ export const useOeeAnalytics = (query: OeeAnalyticsQuery) => {
   useEffect(() => {
 	void load();
   }, [load]);
+
+  // Polling tự động
+  useEffect(() => {
+    if (appEnv.useMock || pollIntervalMs <= 0) return;
+    const timer = setInterval(() => { void load(); }, pollIntervalMs);
+    return () => clearInterval(timer);
+  }, [load, pollIntervalMs]);
 
   return useMemo(
 	() => ({ ...state, loading, error, usingMock: appEnv.useMock, refresh: load }),

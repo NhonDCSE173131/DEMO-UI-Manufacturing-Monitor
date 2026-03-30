@@ -7,7 +7,7 @@ import { useDashboardOverview } from '@/hooks/useDashboardOverview';
 import { useEnergyAnalytics } from '@/hooks/useEnergyAnalytics';
 import { useOeeAnalytics } from '@/hooks/useOeeAnalytics';
 import { formatNumber, formatDateTime } from '@/lib/utils';
-import { Activity, Zap, CheckCircle, AlertTriangle, AlertCircle, Settings, Power, TrendingUp, BarChart3, ShieldAlert } from 'lucide-react';
+import { Activity, Zap, CheckCircle, AlertCircle, Settings, Power, BarChart3, ShieldAlert } from 'lucide-react';
 import ReactECharts from 'echarts-for-react';
 import enMessages from '@/locales/en.json';
 import viMessages from '@/locales/vi.json';
@@ -15,8 +15,10 @@ import Link from 'next/link';
 import { TimeRangeSelector, TimeRange } from '@/components/TimeRangeSelector';
 import { useMemo, useState } from 'react';
 import { buildTimeAxisLabels, getDowntimeUnitLabel, getTimeRangeConfig, normalizeDowntimeMinutes } from '@/lib/time-range-config';
-import { ConnectionBadge } from '@/components/ConnectionBadge';
+import { ConnectionBadge, liveMetricValue } from '@/components/ConnectionBadge';
+import { ChartNoData } from '@/components/ChartNoData';
 import { appEnv } from '@/lib/config/env';
+import { useRealtimeStore } from '@/lib/realtime-store';
 
 const toAnalyticsQuery = (range: TimeRange) => {
   const rangeConfig = getTimeRangeConfig(range);
@@ -43,6 +45,14 @@ const Dashboard = () => {
   const energyAnalytics = useEnergyAnalytics(energyQuery);
   const oeeAnalytics = useOeeAnalytics(oeeQuery);
   const localeKey = selectedLanguage === 'en' ? 'en' : 'vi';
+  const { isMachineLive, telemetrySeriesByMachineId } = useRealtimeStore();
+
+  /** Dashboard-level helper: is a machine live? */
+  const machineIsLive = (machineId: string) => appEnv.useMock || isMachineLive(machineId);
+  const fmtDash = (machineId: string, val: number | undefined | null, decimals = 1) => {
+    const live = machineIsLive(machineId);
+    return liveMetricValue(val, live ? 'ONLINE' : 'OFFLINE', (v) => formatNumber(v, decimals), appEnv.useMock);
+  };
 
   const filteredMachines = machines.filter((machine) => {
     const matchArea = selectedAreaFilter === 'all' || machine.area === selectedAreaFilter;
@@ -52,31 +62,106 @@ const Dashboard = () => {
 
   const displayMachines = filteredMachines.length > 0 ? filteredMachines : machines;
 
+  // ─── KPIs ───────────────────────────────────────────────────
+  // Ưu tiên: REST overview (nếu có) → tính từ machines (SSE-patched real-time từ BE)
+  // machines đã được SSE patch liên tục bởi RealtimeProvider → useMachinesData,
+  // nên giá trị luôn phản ánh data mới nhất BE gửi.
+  const totalPower = overview?.plantPowerKw
+    ?? (displayMachines.length > 0 ? displayMachines.reduce((sum, m) => sum + m.powerKw, 0) : undefined);
+  const totalEnergy = overview?.todayEnergyKwh
+    ?? (displayMachines.length > 0 ? displayMachines.reduce((sum, m) => sum + m.energyTodayKwh, 0) : undefined);
+  const avgOEE = overview?.todayOee ?? oeeAnalytics.overview?.oee ?? oeeAnalytics.overview?.avgOee
+    ?? (displayMachines.length > 0
+      ? displayMachines.reduce((sum, m) => sum + m.oee, 0) / displayMachines.length
+      : undefined);
 
-  // Calculate metrics
-  const totalPower = overview?.plantPowerKw ?? displayMachines.reduce((sum, m) => sum + m.powerKw, 0);
-  const totalEnergy = overview?.todayEnergyKwh ?? displayMachines.reduce((sum, m) => sum + m.energyTodayKwh, 0);
-  const totalProduction = displayMachines.reduce((sum, m) => sum + m.partCount, 0);
-  const totalGood = displayMachines.reduce((sum, m) => sum + m.goodCount, 0);
-  const totalNG = displayMachines.reduce((sum, m) => sum + m.ngCount, 0);
-  const avgOEE = Math.round(overview?.todayOee ?? (displayMachines.reduce((sum, m) => sum + m.oee, 0) / Math.max(1, displayMachines.length)));
-  const runningMachines = overview?.runningMachines ?? displayMachines.filter((m) => m.status === 'RUN').length;
+  const totalProduction = oeeAnalytics.overview?.totalOutput
+    ?? (displayMachines.length > 0 ? displayMachines.reduce((sum, m) => sum + m.partCount, 0) : undefined);
+  const totalGood = oeeAnalytics.overview?.goodOutput
+    ?? (displayMachines.length > 0 ? displayMachines.reduce((sum, m) => sum + m.goodCount, 0) : undefined);
+  const totalNG = oeeAnalytics.overview?.rejectOutput
+    ?? (displayMachines.length > 0 ? displayMachines.reduce((sum, m) => sum + m.ngCount, 0) : undefined);
+
+  const productionDataValid =
+    totalProduction != null && totalGood != null && totalNG != null
+    && totalProduction >= 0 && totalGood >= 0 && totalNG >= 0
+    && (totalGood > 0 || totalNG > 0)
+    && totalGood + totalNG <= totalProduction + 1;
+
+  const runningMachines = overview?.runningMachines
+    ?? displayMachines.filter((m) => m.status === 'RUN').length;
   const faultMachines = displayMachines.filter((m) => m.status === 'FAULT').length;
   const idleMachines = displayMachines.filter((m) => m.status === 'IDLE').length;
   const criticalEvents = events.filter(e => e.severity === 'critical');
   const warningEvents = events.filter(e => e.severity === 'warning');
   const riskMachines = displayMachines.filter(m => m.maintenanceDueDays <= 14).sort((a,b) => a.maintenanceDueDays - b.maintenanceDueDays);
 
+  // ─── Chart data ─────────────────────────────────────────────
   const energyRangeConfig = getTimeRangeConfig(energyRange);
   const powerRangeConfig = getTimeRangeConfig(powerRange);
   const downtimeRangeConfig = getTimeRangeConfig(downtimeRange);
   const energyAxisLabels = buildTimeAxisLabels(energyRange, localeKey);
   const downtimeUnitLabel = getDowntimeUnitLabel(downtimeRange, localeKey);
   const energyUnitLabel = energyRangeConfig.energyUnit;
-  const energyBase =
-    energyUnitLabel === 'kW'
-      ? totalPower
-      : (totalPower * (energyRangeConfig.totalMinutes / energyRangeConfig.pointCount)) / 60;
+
+  // OEE chart: ưu tiên analytics API → fallback về machines (SSE-patched)
+  const oeeChartData = oeeAnalytics.byMachine.length > 0
+    ? oeeAnalytics.byMachine.map((m) => ({
+        label: String(m.machineCode || m.machineName || m.label || m.key || m.id || ''),
+        value: Number(m.oee ?? m.value ?? 0),
+      }))
+    : displayMachines.map((m) => ({ label: m.code, value: m.oee }));
+  const hasOeeChartData = oeeChartData.length > 0;
+
+  // Power pie: ưu tiên analytics API → fallback về machines (SSE-patched)
+  const powerPieData = energyAnalytics.byMachine.length > 0
+    ? energyAnalytics.byMachine.map((m) => {
+        const value = Number(m.value ?? m.total ?? 0);
+        const label = String(m.machineCode || m.machineName || m.label || m.key || m.id || '');
+        return { value, name: `${label} (${value}${powerRangeConfig.energyUnit})` };
+      })
+    : displayMachines.map((m) => {
+        const rawValue = powerRangeConfig.energyUnit === 'kW' ? m.powerKw : (m.powerKw * powerRangeConfig.totalMinutes) / 60;
+        const value = Math.round(rawValue * 10) / 10;
+        return { value, name: `${m.code} (${value}${powerRangeConfig.energyUnit})` };
+      });
+  const hasPowerPieData = powerPieData.length > 0;
+
+  // Energy trend: ưu tiên analytics API → fallback về SSE telemetry series (realtime)
+  const energyTrendFromApi = energyAnalytics.trend.length > 0
+    ? energyAnalytics.trend.map((p) => Number(p.value ?? p.energyKwh ?? p.powerKw ?? 0))
+    : null;
+
+  // Build energy trend from SSE telemetry khi API không có data
+  const energyTrendFromSse = useMemo(() => {
+    if (energyTrendFromApi) return null; // Không cần, đã có API data
+    // Gom tất cả telemetry points, nhóm theo thời gian, tính tổng powerKw
+    const windowMs = energyRangeConfig.totalMinutes * 60 * 1000;
+    const fromMs = Date.now() - windowMs;
+    const allPoints: { ts: number; powerKw: number }[] = [];
+    for (const series of Object.values(telemetrySeriesByMachineId)) {
+      for (const p of series) {
+        const ts = new Date(p.timestamp).getTime();
+        if (ts >= fromMs && p.powerKw != null) {
+          allPoints.push({ ts, powerKw: p.powerKw });
+        }
+      }
+    }
+    if (allPoints.length === 0) return null;
+    // Nhóm theo buckets
+    const bucketCount = energyRangeConfig.pointCount;
+    const bucketSize = windowMs / bucketCount;
+    const buckets = Array.from({ length: bucketCount }, () => ({ sum: 0, count: 0 }));
+    for (const p of allPoints) {
+      const idx = Math.min(bucketCount - 1, Math.floor((p.ts - fromMs) / bucketSize));
+      buckets[idx].sum += p.powerKw;
+      buckets[idx].count += 1;
+    }
+    return buckets.map((b) => (b.count > 0 ? Math.round((b.sum / b.count) * 100) / 100 : 0));
+  }, [energyTrendFromApi, telemetrySeriesByMachineId, energyRangeConfig.totalMinutes, energyRangeConfig.pointCount]);
+
+  const energyTrendData = energyTrendFromApi ?? energyTrendFromSse;
+  const hasEnergyTrendData = energyTrendData != null && energyTrendData.length > 0;
 
   const recentDowntimeEvents = events.filter((event) => {
     const eventTime = new Date(event.timestamp).getTime();
@@ -89,7 +174,7 @@ const Dashboard = () => {
     grid: { left: '3%', right: '4%', bottom: '3%', top: '15%', containLabel: true },
     xAxis: {
       type: 'category',
-      data: (oeeAnalytics.byMachine.length > 0 ? oeeAnalytics.byMachine.map((m) => String(m.machineCode || m.machineName || m.label || m.key || m.id || '')) : displayMachines.map(m => m.code)),
+      data: oeeChartData.map((m) => m.label),
       axisLabel: { color: '#8fb3d9', fontSize: 11 },
       axisLine: { lineStyle: { color: '#333' } },
     },
@@ -103,21 +188,16 @@ const Dashboard = () => {
       {
         name: 'OEE',
         type: 'bar',
-        data: (oeeAnalytics.byMachine.length > 0
-          ? oeeAnalytics.byMachine.map((m) => {
-              const value = Number(m.oee ?? m.value ?? 0);
-              return { value, itemStyle: { color: value >= 85 ? '#22c55e' : value >= 60 ? '#facc15' : '#ef4444', borderRadius: [4, 4, 0, 0] } };
-            })
-          : displayMachines.map(m => ({
-              value: m.oee,
-              itemStyle: { color: m.oee >= 85 ? '#22c55e' : m.oee >= 60 ? '#facc15' : '#ef4444', borderRadius: [4, 4, 0, 0] }
-            }))),
+        data: oeeChartData.map((m) => ({
+          value: m.value,
+          itemStyle: { color: m.value >= 85 ? '#22c55e' : m.value >= 60 ? '#facc15' : '#ef4444', borderRadius: [4, 4, 0, 0] },
+        })),
         barWidth: '50%',
       },
       {
         name: selectedLanguage === 'en' ? 'Target' : 'Mục tiêu',
         type: 'line',
-        data: Array.from({ length: displayMachines.length }).map(() => 85),
+        data: Array.from({ length: oeeChartData.length }).map(() => 85),
         smooth: true,
         symbol: 'none',
         lineStyle: { type: 'dashed', color: '#facc15', width: 2 },
@@ -142,11 +222,7 @@ const Dashboard = () => {
       avoidLabelOverlap: true,
       itemStyle: { borderRadius: 4, borderColor: '#0B213F', borderWidth: 2 },
       label: { show: false },
-      data: displayMachines.map((m) => {
-        const rawValue = powerRangeConfig.energyUnit === 'kW' ? m.powerKw : (m.powerKw * powerRangeConfig.totalMinutes) / 60;
-        const value = Math.round(rawValue * 10) / 10;
-        return { value, name: `${m.code} (${value}${powerRangeConfig.energyUnit})` };
-      }),
+      data: powerPieData,
     }],
   };
 
@@ -183,12 +259,7 @@ const Dashboard = () => {
             ],
           },
         },
-        data:
-          energyAnalytics.trend.length > 0
-            ? energyAnalytics.trend.map((p) => Number(p.value ?? p.energyKwh ?? p.powerKw ?? 0))
-            : Array.from({ length: energyRangeConfig.pointCount }).map((_, idx) =>
-                Math.max(1, energyBase * (0.82 + Math.sin(idx / 2.2) * 0.12 + Math.random() * 0.08)),
-              ),
+        data: energyTrendData,
       },
     ],
   };
@@ -232,7 +303,7 @@ const Dashboard = () => {
         <div className="card-industrial p-3 text-xs border border-industrial-border/20 text-industrial-text-secondary">
           {machinesLoading || alarmsLoading || overviewLoading || energyAnalytics.loading || oeeAnalytics.loading
             ? (selectedLanguage === 'en' ? 'Loading dashboard data from backend...' : 'Đang tải dữ liệu bảng điều khiển từ backend...')
-            : `${selectedLanguage === 'en' ? 'Backend unavailable. Showing local fallback.' : 'Backend tạm thời không phản hồi. Đang hiển thị dữ liệu dự phòng.'} ${machinesError || alarmsError || overviewError || energyAnalytics.error || oeeAnalytics.error || ''}`}
+            : `${selectedLanguage === 'en' ? 'Backend unavailable. Showing no-data state.' : 'Backend tạm thời không phản hồi. Đang hiển thị trạng thái không có dữ liệu.'} ${machinesError || alarmsError || overviewError || energyAnalytics.error || oeeAnalytics.error || ''}`}
         </div>
       )}
 
@@ -243,9 +314,13 @@ const Dashboard = () => {
           <div className="flex items-start justify-between">
             <div>
               <p className="text-xs text-industrial-text-secondary font-medium uppercase tracking-wider">{messages.dashboard.oeAverage}</p>
-              <p className="text-4xl font-bold mt-2" style={{ color: avgOEE >= 85 ? '#22c55e' : avgOEE >= 60 ? '#facc15' : '#ef4444' }}>
-                {avgOEE}<span className="text-lg font-normal">%</span>
-              </p>
+              {avgOEE != null ? (
+                <p className="text-4xl font-bold mt-2" style={{ color: avgOEE >= 85 ? '#22c55e' : avgOEE >= 60 ? '#facc15' : '#ef4444' }}>
+                  {Math.round(avgOEE)}<span className="text-lg font-normal">%</span>
+                </p>
+              ) : (
+                <p className="text-4xl font-bold mt-2 text-industrial-text-secondary">--</p>
+              )}
               <p className="text-xs text-industrial-text-secondary mt-1">{selectedLanguage === 'en' ? 'Target: 85%' : 'Mục tiêu: 85%'}</p>
             </div>
             <div className="w-12 h-12 rounded-xl bg-industrial-border/10 flex items-center justify-center">
@@ -259,9 +334,13 @@ const Dashboard = () => {
           <div className="flex items-start justify-between">
             <div>
               <p className="text-xs text-industrial-text-secondary font-medium uppercase tracking-wider">{messages.dashboard.totalPower}</p>
-              <p className="text-4xl font-bold text-industrial-success mt-2">
-                {formatNumber(totalPower, 1)}<span className="text-lg font-normal ml-1">kW</span>
-              </p>
+              {totalPower != null ? (
+                <p className="text-4xl font-bold text-industrial-success mt-2">
+                  {formatNumber(totalPower, 1)}<span className="text-lg font-normal ml-1">kW</span>
+                </p>
+              ) : (
+                <p className="text-4xl font-bold mt-2 text-industrial-text-secondary">--</p>
+              )}
             </div>
             <div className="w-12 h-12 rounded-xl bg-industrial-success/10 flex items-center justify-center">
               <Power size={24} className="text-industrial-success" />
@@ -274,9 +353,13 @@ const Dashboard = () => {
           <div className="flex items-start justify-between">
             <div>
               <p className="text-xs text-industrial-text-secondary font-medium uppercase tracking-wider">{messages.dashboard.totalEnergyToday}</p>
-              <p className="text-4xl font-bold text-industrial-border mt-2">
-                {formatNumber(totalEnergy, 0)}<span className="text-lg font-normal ml-1">kWh</span>
-              </p>
+              {totalEnergy != null ? (
+                <p className="text-4xl font-bold text-industrial-border mt-2">
+                  {formatNumber(totalEnergy, 0)}<span className="text-lg font-normal ml-1">kWh</span>
+                </p>
+              ) : (
+                <p className="text-4xl font-bold mt-2 text-industrial-text-secondary">--</p>
+              )}
             </div>
             <div className="w-12 h-12 rounded-xl bg-industrial-border/10 flex items-center justify-center">
               <Zap size={24} className="text-industrial-border" />
@@ -289,14 +372,26 @@ const Dashboard = () => {
           <div className="flex items-start justify-between">
             <div>
               <p className="text-xs text-industrial-text-secondary font-medium uppercase tracking-wider">{messages.dashboard.totalProduction}</p>
-              <p className="text-4xl font-bold text-industrial-text mt-2">
-                {totalProduction}
-              </p>
-              <p className="text-xs mt-1">
-                <span className="text-industrial-success">{totalGood} {(messages.dashboard as any).good || 'Good'}</span>
-                <span className="text-industrial-text-secondary mx-1">·</span>
-                <span className="text-industrial-error">{totalNG} {(messages.dashboard as any).ng || 'NG'}</span>
-              </p>
+              {totalProduction != null ? (
+                <>
+                  <p className="text-4xl font-bold text-industrial-text mt-2">
+                    {totalProduction}
+                  </p>
+                  {productionDataValid ? (
+                    <p className="text-xs mt-1">
+                      <span className="text-industrial-success">{totalGood} {(messages.dashboard as any).good || 'Good'}</span>
+                      <span className="text-industrial-text-secondary mx-1">·</span>
+                      <span className="text-industrial-error">{totalNG} {(messages.dashboard as any).ng || 'NG'}</span>
+                    </p>
+                  ) : totalProduction > 0 ? (
+                    <p className="text-xs mt-1 text-industrial-text-secondary">
+                      {selectedLanguage === 'vi' ? 'Chưa có phân loại Good/NG' : 'Good/NG breakdown unavailable'}
+                    </p>
+                  ) : null}
+                </>
+              ) : (
+                <p className="text-4xl font-bold mt-2 text-industrial-text-secondary">--</p>
+              )}
             </div>
             <div className="w-12 h-12 rounded-xl bg-industrial-info/10 flex items-center justify-center">
               <CheckCircle size={24} className="text-industrial-info" />
@@ -319,7 +414,7 @@ const Dashboard = () => {
                 <div className="w-3 h-3 rounded-full bg-industrial-success"></div>
                 <span className="text-sm text-industrial-text">{messages.machine.running}</span>
               </div>
-              <span className="text-2xl font-bold text-industrial-success">{runningMachines}</span>
+              <span className="text-2xl font-bold text-industrial-success">{runningMachines ?? '--'}</span>
             </div>
             <div className="flex justify-between items-center p-3 rounded-lg bg-industrial-darker/50">
               <div className="flex items-center gap-2">
@@ -339,14 +434,24 @@ const Dashboard = () => {
           {/* Good/NG Bar */}
           <div className="mt-4 pt-4 border-t border-industrial-border/20">
             <h4 className="text-xs text-industrial-text-secondary mb-2 font-medium">{messages.dashboard.goodNgRatio}</h4>
-            <div className="flex gap-1 h-3 rounded-full overflow-hidden bg-industrial-card border border-industrial-border/10">
-              <div className="bg-industrial-success rounded-l-full transition-all" style={{ width: `${totalProduction > 0 ? (totalGood / totalProduction) * 100 : 0}%` }}></div>
-              <div className="bg-industrial-error rounded-r-full transition-all" style={{ width: `${totalProduction > 0 ? (totalNG / totalProduction) * 100 : 0}%` }}></div>
-            </div>
-            <div className="flex justify-between text-xs mt-1">
-              <span className="text-industrial-success">{totalProduction > 0 ? ((totalGood / totalProduction) * 100).toFixed(1) : 0}% {(messages.dashboard as any).good || 'Good'}</span>
-              <span className="text-industrial-error">{totalProduction > 0 ? ((totalNG / totalProduction) * 100).toFixed(1) : 0}% {(messages.dashboard as any).ng || 'NG'}</span>
-            </div>
+            {productionDataValid && totalProduction > 0 ? (
+              <>
+                <div className="flex gap-1 h-3 rounded-full overflow-hidden bg-industrial-card border border-industrial-border/10">
+                  <div className="bg-industrial-success rounded-l-full transition-all" style={{ width: `${(totalGood / totalProduction) * 100}%` }}></div>
+                  <div className="bg-industrial-error rounded-r-full transition-all" style={{ width: `${(totalNG / totalProduction) * 100}%` }}></div>
+                </div>
+                <div className="flex justify-between text-xs mt-1">
+                  <span className="text-industrial-success">{((totalGood / totalProduction) * 100).toFixed(1)}% {(messages.dashboard as any).good || 'Good'}</span>
+                  <span className="text-industrial-error">{((totalNG / totalProduction) * 100).toFixed(1)}% {(messages.dashboard as any).ng || 'NG'}</span>
+                </div>
+              </>
+            ) : (
+              <div className="text-xs text-industrial-text-secondary text-center py-2">
+                {totalProduction === 0
+                  ? (selectedLanguage === 'vi' ? 'Chưa có sản phẩm' : 'No production yet')
+                  : (selectedLanguage === 'vi' ? 'Chưa có dữ liệu phân loại Good/NG từ backend' : 'Good/NG classification data unavailable from backend')}
+              </div>
+            )}
           </div>
         </div>
 
@@ -448,7 +553,14 @@ const Dashboard = () => {
             <TimeRangeSelector value={oeeRange} onChange={setOeeRange} showLabel={false} />
           </div>
           <div className="h-64">
-            <ReactECharts option={oeeByMachineOption} style={{ height: '100%', width: '100%' }} />
+            {hasOeeChartData ? (
+              <ReactECharts option={oeeByMachineOption} style={{ height: '100%', width: '100%' }} />
+            ) : (
+              <ChartNoData
+                title={selectedLanguage === 'vi' ? 'Chua co du lieu OEE theo may' : 'No OEE by-machine data'}
+                message={selectedLanguage === 'vi' ? 'Backend chua tra ve du lieu OEE theo may trong khoang nay.' : 'Backend has not returned by-machine OEE for this range.'}
+              />
+            )}
           </div>
         </div>
 
@@ -462,7 +574,14 @@ const Dashboard = () => {
             <TimeRangeSelector value={powerRange} onChange={setPowerRange} showLabel={false} />
           </div>
           <div className="h-64">
-            <ReactECharts option={powerPieOption} style={{ height: '100%', width: '100%' }} />
+            {hasPowerPieData ? (
+              <ReactECharts option={powerPieOption} style={{ height: '100%', width: '100%' }} />
+            ) : (
+              <ChartNoData
+                title={selectedLanguage === 'vi' ? 'Chua co du lieu phan bo dien nang' : 'No power distribution data'}
+                message={selectedLanguage === 'vi' ? 'Backend chua tra ve du lieu phan bo theo may.' : 'Backend has not returned machine power distribution.'}
+              />
+            )}
           </div>
         </div>
       </div>
@@ -474,7 +593,14 @@ const Dashboard = () => {
             <TimeRangeSelector value={energyRange} onChange={setEnergyRange} showLabel={false} />
           </div>
           <div className="h-64">
-            <ReactECharts option={energyTrendOption} style={{ height: '100%', width: '100%' }} />
+            {hasEnergyTrendData ? (
+              <ReactECharts option={energyTrendOption} style={{ height: '100%', width: '100%' }} />
+            ) : (
+              <ChartNoData
+                title={selectedLanguage === 'vi' ? 'Chua co du lieu xu huong nang luong' : 'No energy trend data'}
+                message={selectedLanguage === 'vi' ? 'Backend chua tra ve du lieu trend nang luong.' : 'Backend has not returned energy trend points.'}
+              />
+            )}
           </div>
         </div>
 
@@ -532,11 +658,11 @@ const Dashboard = () => {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{
-                        backgroundColor: machine.status === 'RUN' ? '#22c55e' : machine.status === 'FAULT' ? '#ef4444' : '#60a5fa'
+                        backgroundColor: !machineIsLive(machine.id) && !appEnv.useMock ? '#ef4444' : machine.status === 'RUN' ? '#22c55e' : machine.status === 'FAULT' ? '#ef4444' : '#60a5fa'
                       }}></div>
                       <p className="font-semibold text-industrial-text truncate group-hover:text-industrial-border transition-colors">{machine.name}</p>
                     </div>
-                    <p className="text-xs text-industrial-text-secondary">{machine.code} · {machine.status}</p>
+                    <p className="text-xs text-industrial-text-secondary">{machine.code} · {!machineIsLive(machine.id) && !appEnv.useMock ? (selectedLanguage === 'vi' ? 'Mất kết nối' : 'Offline') : machine.status}</p>
                     <div className="flex gap-1 mt-1 flex-wrap items-center">
                       <span className="data-layer-badge raw">{selectedLanguage === 'en' ? 'thô' : 'thô'}</span>
                       <span className="data-layer-badge computed">{selectedLanguage === 'en' ? 'chỉ số' : 'chỉ số'}</span>
@@ -551,22 +677,22 @@ const Dashboard = () => {
                     </div>
                   </div>
                   <div className="text-right shrink-0">
-                    <p className="text-xl font-bold" style={{ color: machine.oee >= 85 ? '#22c55e' : machine.oee >= 60 ? '#facc15' : '#ef4444' }}>{machine.oee}%</p>
+                    <p className="text-xl font-bold" style={{ color: machineIsLive(machine.id) ? (machine.oee >= 85 ? '#22c55e' : machine.oee >= 60 ? '#facc15' : '#ef4444') : '#6b7280' }}>{fmtDash(machine.id, machine.oee, 0)}%</p>
                     <p className="text-[10px] text-industrial-text-secondary">OEE</p>
                   </div>
                 </div>
                 <div className="grid grid-cols-4 gap-2 text-xs">
                   <div className="bg-industrial-bg/50 rounded p-2 text-center">
                     <p className="text-industrial-text-secondary">{(messages.dashboard as any).powerShort || (selectedLanguage === 'en' ? 'Power' : 'Điện')}</p>
-                    <p className="font-semibold text-industrial-text">{formatNumber(machine.powerKw, 1)}<span className="text-industrial-text-secondary text-[10px]"> kW</span></p>
+                    <p className="font-semibold text-industrial-text">{fmtDash(machine.id, machine.powerKw)}<span className="text-industrial-text-secondary text-[10px]"> kW</span></p>
                   </div>
                   <div className="bg-industrial-bg/50 rounded p-2 text-center">
                     <p className="text-industrial-text-secondary">{(messages.dashboard as any).partsShort || (selectedLanguage === 'en' ? 'Parts' : 'Sản lượng')}</p>
-                    <p className="font-semibold text-industrial-text">{machine.partCount}</p>
+                    <p className="font-semibold text-industrial-text">{machineIsLive(machine.id) || appEnv.useMock ? machine.partCount : '--'}</p>
                   </div>
                   <div className="bg-industrial-bg/50 rounded p-2 text-center">
                     <p className="text-industrial-text-secondary">{(messages.dashboard as any).healthShort || (selectedLanguage === 'en' ? 'Health' : 'Sức khỏe')}</p>
-                    <p className="font-semibold" style={{ color: machine.machineHealth >= 80 ? '#22c55e' : machine.machineHealth >= 60 ? '#facc15' : '#ef4444' }}>{machine.machineHealth}%</p>
+                    <p className="font-semibold" style={{ color: machineIsLive(machine.id) ? (machine.machineHealth >= 80 ? '#22c55e' : machine.machineHealth >= 60 ? '#facc15' : '#ef4444') : '#6b7280' }}>{fmtDash(machine.id, machine.machineHealth, 0)}%</p>
                   </div>
                   <div className="bg-industrial-bg/50 rounded p-2 text-center">
                     <p className="text-industrial-text-secondary">{(messages.dashboard as any).alarmsShort || (selectedLanguage === 'en' ? 'Alarms' : 'Cảnh báo')}</p>

@@ -13,6 +13,7 @@ import viMessages from '@/locales/vi.json';
 import { TimeRangeSelector, TimeRange } from '@/components/TimeRangeSelector';
 import { useMemo, useState } from 'react';
 import { buildTimeAxisLabels, getDowntimeUnitLabel, getTimeRangeConfig, normalizeDowntimeMinutes } from '@/lib/time-range-config';
+import { ChartNoData } from '@/components/ChartNoData';
 
 const toOeeQuery = (range: TimeRange, selectedShift: string, selectedAreaFilter: string, selectedStatusFilter: string) => {
   const rangeConfig = getTimeRangeConfig(range);
@@ -34,7 +35,8 @@ const OEEPage = () => {
     selectedAreaFilter,
     selectedStatusFilter,
   } = useMachineStore();
-  const { connectionStatus } = useRealtimeStore();
+  const { connectionStatus, telemetrySeriesByMachineId } = useRealtimeStore();
+  // ...existing code...
   const { machines, loading: machinesLoading, error: machinesError } = useMachinesData();
   const { events, loading: alarmsLoading, error: alarmsError } = useAlarmsData();
   const messages = selectedLanguage === 'en' ? enMessages : viMessages;
@@ -77,13 +79,39 @@ const OEEPage = () => {
   const rejectOutput = Math.round(oeeAnalytics.overview?.rejectOutput ?? displayMachines.reduce((sum, machine) => sum + machine.ngCount, 0));
   const targetOutput = Math.round(oeeAnalytics.overview?.targetOutput ?? (totalOutput * 1.08));
 
-  const oeeTrendData =
+  const oeeTrendFromApi =
     oeeAnalytics.trend.length > 0
       ? oeeAnalytics.trend.map((p) => Math.max(0, Math.min(100, Number(p.oee ?? p.value ?? 0))))
-      : Array.from({ length: trendConfig.pointCount }).map((_, idx) => {
-          const base = avgOEE - 5 + idx * 0.4;
-          return Math.max(30, Math.min(98, Math.round(base + (Math.random() * 6 - 3))));
-        });
+      : null;
+
+  // Fallback: build OEE trend from SSE telemetry time-series
+  const oeeTrendFromSse = useMemo(() => {
+    if (oeeTrendFromApi) return null;
+    const windowMs = trendConfig.totalMinutes * 60 * 1000;
+    const fromMs = Date.now() - windowMs;
+    const allPoints: { ts: number; oee: number }[] = [];
+    for (const series of Object.values(telemetrySeriesByMachineId)) {
+      for (const p of series) {
+        const ts = new Date(p.timestamp).getTime();
+        if (ts >= fromMs && p.oee != null) {
+          allPoints.push({ ts, oee: p.oee });
+        }
+      }
+    }
+    if (allPoints.length === 0) return null;
+    const bucketCount = trendConfig.pointCount;
+    const bucketSize = windowMs / bucketCount;
+    const buckets = Array.from({ length: bucketCount }, () => ({ sum: 0, count: 0 }));
+    for (const p of allPoints) {
+      const idx = Math.min(bucketCount - 1, Math.floor((p.ts - fromMs) / bucketSize));
+      buckets[idx].sum += p.oee;
+      buckets[idx].count += 1;
+    }
+    return buckets.map((b) => (b.count > 0 ? Math.round(b.sum / b.count) : 0));
+  }, [oeeTrendFromApi, telemetrySeriesByMachineId, trendConfig.totalMinutes, trendConfig.pointCount]);
+
+  const oeeTrendData = oeeTrendFromApi ?? oeeTrendFromSse;
+  const hasOeeTrendData = oeeTrendData != null && oeeTrendData.length > 0;
 
   const oeeTrendOption = {
     tooltip: { trigger: 'axis', backgroundColor: '#111', borderColor: '#17a2b8', textStyle: { color: '#fff' } },
@@ -331,7 +359,14 @@ const OEEPage = () => {
             <TimeRangeSelector value={oeeTrendRange} onChange={setOeeTrendRange} showLabel={false} />
           </div>
           <div className="h-64">
-            <ReactECharts option={oeeTrendOption} style={{ height: '100%', width: '100%' }} />
+            {hasOeeTrendData ? (
+              <ReactECharts option={oeeTrendOption} style={{ height: '100%', width: '100%' }} />
+            ) : (
+              <ChartNoData
+                title={selectedLanguage === 'vi' ? 'Chưa có dữ liệu OEE trend' : 'No OEE trend data'}
+                message={selectedLanguage === 'vi' ? 'Đang chờ dữ liệu từ backend qua SSE.' : 'Waiting for backend data via SSE.'}
+              />
+            )}
           </div>
         </div>
 

@@ -12,6 +12,7 @@ import viMessages from '@/locales/vi.json';
 import { TimeRangeSelector, TimeRange } from '@/components/TimeRangeSelector';
 import { useMemo, useState } from 'react';
 import { buildTimeAxisLabels, getTimeRangeConfig } from '@/lib/time-range-config';
+import { ChartNoData } from '@/components/ChartNoData';
 
 const toAnalyticsQuery = (range: TimeRange, selectedAreaFilter: string, selectedStatusFilter: string) => {
   const rangeConfig = getTimeRangeConfig(range);
@@ -27,7 +28,7 @@ const toAnalyticsQuery = (range: TimeRange, selectedAreaFilter: string, selected
 
 const EnergyPage = () => {
   const { selectedLanguage, selectedAreaFilter, selectedStatusFilter } = useMachineStore();
-  const { connectionStatus } = useRealtimeStore();
+  const { connectionStatus, telemetrySeriesByMachineId } = useRealtimeStore();
   const { machines, loading: machinesLoading, error: machinesError } = useMachinesData();
   const messages = selectedLanguage === 'en' ? enMessages : viMessages;
   const [distributionRange, setDistributionRange] = useState<TimeRange>('1h');
@@ -106,6 +107,39 @@ const EnergyPage = () => {
     ]
   };
 
+  // Energy trend: API → SSE telemetry fallback
+  const energyTrendFromApi = trendAnalytics.trend.length > 0
+    ? trendAnalytics.trend.map((p) => Number(p.value ?? p.energyKwh ?? p.powerKw ?? 0))
+    : null;
+
+  const energyTrendFromSse = useMemo(() => {
+    if (energyTrendFromApi) return null;
+    const windowMs = trendConfig.totalMinutes * 60 * 1000;
+    const fromMs = Date.now() - windowMs;
+    const allPoints: { ts: number; powerKw: number }[] = [];
+    for (const series of Object.values(telemetrySeriesByMachineId)) {
+      for (const p of series) {
+        const ts = new Date(p.timestamp).getTime();
+        if (ts >= fromMs && p.powerKw != null) {
+          allPoints.push({ ts, powerKw: p.powerKw });
+        }
+      }
+    }
+    if (allPoints.length === 0) return null;
+    const bucketCount = trendConfig.pointCount;
+    const bucketSize = windowMs / bucketCount;
+    const buckets = Array.from({ length: bucketCount }, () => ({ sum: 0, count: 0 }));
+    for (const p of allPoints) {
+      const idx = Math.min(bucketCount - 1, Math.floor((p.ts - fromMs) / bucketSize));
+      buckets[idx].sum += p.powerKw;
+      buckets[idx].count += 1;
+    }
+    return buckets.map((b) => (b.count > 0 ? Math.round((b.sum / b.count) * 100) / 100 : 0));
+  }, [energyTrendFromApi, telemetrySeriesByMachineId, trendConfig.totalMinutes, trendConfig.pointCount]);
+
+  const energyTrendData = energyTrendFromApi ?? energyTrendFromSse;
+  const hasEnergyTrendData = energyTrendData != null && energyTrendData.length > 0;
+
   const energyTrendOption = {
     tooltip: { trigger: 'axis', backgroundColor: '#111', borderColor: '#17a2b8', textStyle: { color: '#fff' } },
     grid: { left: '3%', right: '3%', top: '10%', bottom: '8%', containLabel: true },
@@ -139,12 +173,7 @@ const EnergyPage = () => {
             ],
           },
         },
-        data: trendAnalytics.trend.length > 0
-          ? trendAnalytics.trend.map((p) => Number(p.value ?? p.energyKwh ?? p.powerKw ?? 0))
-          : Array.from({ length: trendConfig.pointCount }).map((_, idx) => {
-              const base = normalizeEnergyValue(totalPowerNow, trendRange);
-              return Math.max(1, base * (0.8 + Math.sin(idx / 2) * 0.15 + Math.random() * 0.08));
-            }),
+        data: energyTrendData,
       },
     ],
   };
@@ -244,7 +273,14 @@ const EnergyPage = () => {
             <TimeRangeSelector value={trendRange} onChange={setTrendRange} showLabel={false} />
           </div>
           <div className="h-64">
-            <ReactECharts option={energyTrendOption} style={{ height: '100%', width: '100%' }} />
+            {hasEnergyTrendData ? (
+              <ReactECharts option={energyTrendOption} style={{ height: '100%', width: '100%' }} />
+            ) : (
+              <ChartNoData
+                title={selectedLanguage === 'vi' ? 'Chưa có dữ liệu xu hướng điện năng' : 'No energy trend data'}
+                message={selectedLanguage === 'vi' ? 'Đang chờ dữ liệu từ backend qua SSE.' : 'Waiting for backend data via SSE.'}
+              />
+            )}
           </div>
         </div>
 

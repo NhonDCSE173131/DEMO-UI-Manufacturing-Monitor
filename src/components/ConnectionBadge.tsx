@@ -34,14 +34,15 @@ const labels: Record<ConnectionStateType, { vi: string; en: string; color: strin
 };
 
 export function ConnectionBadge({ connectionState, lang = 'vi', size = 'sm' }: ConnectionBadgeProps) {
-  if (!connectionState) return null;
-  const { vi: viLabel, en: enLabel, color, dot } = labels[connectionState];
+  // Nếu không có connectionState → hiện như OFFLINE (chưa nhận dữ liệu từ PLC)
+  const resolvedState: ConnectionStateType = connectionState || 'OFFLINE';
+  const { vi: viLabel, en: enLabel, color, dot } = labels[resolvedState];
   const label = lang === 'vi' ? viLabel : enLabel;
   const textSize = size === 'xs' ? 'text-[10px]' : 'text-xs';
 
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border font-semibold ${textSize} ${color}`}>
-      <span className={`w-1.5 h-1.5 rounded-full ${dot} ${connectionState === 'ONLINE' ? 'animate-pulse' : ''}`} />
+      <span className={`w-1.5 h-1.5 rounded-full ${dot} ${resolvedState === 'ONLINE' ? 'animate-pulse' : ''}`} />
       {label}
     </span>
   );

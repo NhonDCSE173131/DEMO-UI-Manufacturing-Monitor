@@ -1,20 +1,23 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { alarmsApi } from '@/lib/api/alarms';
 import { appEnv } from '@/lib/config/env';
 import { useMachineStore } from '@/lib/store';
 import { useRealtimeStore } from '@/lib/realtime-store';
 import type { MachineEvent } from '@/types';
 
-export const useAlarmsData = () => {
+const DEFAULT_POLL_MS = 30_000; // 30 giây
+
+export const useAlarmsData = (pollIntervalMs: number = DEFAULT_POLL_MS) => {
   const { events: storeEvents } = useMachineStore();
   const { realtimeAlarmEvents } = useRealtimeStore();
   const [events, setEvents] = useState<MachineEvent[]>(appEnv.useMock ? storeEvents : []);
   const [loading, setLoading] = useState(!appEnv.useMock);
   const [error, setError] = useState<string | null>(null);
+  const initialLoadDone = useRef(false);
 
   const load = useCallback(async () => {
     if (appEnv.useMock) return;
-    setLoading(true);
+    if (!initialLoadDone.current) setLoading(true);
     setError(null);
     try {
       const [active, history] = await Promise.all([
@@ -31,13 +34,15 @@ export const useAlarmsData = () => {
         return true;
       });
       setEvents(unique);
+      initialLoadDone.current = true;
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Khong tai duoc canh bao');
-      setEvents([]);
+      if (!initialLoadDone.current) setEvents([]);
     } finally {
       setLoading(false);
     }
   }, []);
+
 
   const acknowledge = useCallback(
     async (alarmId: string, acknowledgedBy = 'ui-operator') => {
@@ -70,6 +75,13 @@ export const useAlarmsData = () => {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Polling tự động
+  useEffect(() => {
+    if (appEnv.useMock || pollIntervalMs <= 0) return;
+    const timer = setInterval(() => { void load(); }, pollIntervalMs);
+    return () => clearInterval(timer);
+  }, [load, pollIntervalMs]);
 
   useEffect(() => {
     if (appEnv.useMock) {

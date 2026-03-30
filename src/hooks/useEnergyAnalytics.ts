@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { appEnv } from '@/lib/config/env';
 import { energyApi, type EnergyAnalyticsQuery } from '@/lib/api/energy';
 import type { AnalyticsBreakdownItemResponse, AnalyticsSeriesPointResponse, EnergyOverviewResponse } from '@/types/api';
@@ -19,14 +19,17 @@ const initialState: EnergyAnalyticsState = {
   cost: null,
 };
 
-export const useEnergyAnalytics = (query: EnergyAnalyticsQuery) => {
+const DEFAULT_POLL_MS = 15_000; // 15 giây
+
+export const useEnergyAnalytics = (query: EnergyAnalyticsQuery, pollIntervalMs: number = DEFAULT_POLL_MS) => {
   const [state, setState] = useState<EnergyAnalyticsState>(initialState);
   const [loading, setLoading] = useState(!appEnv.useMock);
   const [error, setError] = useState<string | null>(null);
+  const initialLoadDone = useRef(false);
 
   const load = useCallback(async () => {
     if (appEnv.useMock) return;
-    setLoading(true);
+    if (!initialLoadDone.current) setLoading(true);
     setError(null);
     try {
       const [overview, trend, byArea, byMachine, cost] = await Promise.all([
@@ -37,9 +40,10 @@ export const useEnergyAnalytics = (query: EnergyAnalyticsQuery) => {
         energyApi.getCost(query),
       ]);
       setState({ overview, trend, byArea, byMachine, cost });
+      initialLoadDone.current = true;
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Khong tai duoc du lieu nang luong');
-      setState(initialState);
+      if (!initialLoadDone.current) setState(initialState);
     } finally {
       setLoading(false);
     }
@@ -48,6 +52,13 @@ export const useEnergyAnalytics = (query: EnergyAnalyticsQuery) => {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Polling tự động
+  useEffect(() => {
+    if (appEnv.useMock || pollIntervalMs <= 0) return;
+    const timer = setInterval(() => { void load(); }, pollIntervalMs);
+    return () => clearInterval(timer);
+  }, [load, pollIntervalMs]);
 
   return useMemo(
     () => ({ ...state, loading, error, usingMock: appEnv.useMock, refresh: load }),

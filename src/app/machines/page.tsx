@@ -9,7 +9,7 @@ import { machinesApi } from '@/lib/api/machines';
 import { appEnv } from '@/lib/config/env';
 import { formatNumber, formatDateTime, getHealthScore } from '@/lib/utils';
 import type { MachineHistoryQuery } from '@/types/api';
-import { Thermometer, Zap, Activity, Clock, Cpu, BarChart3, TrendingUp, Package, AlertTriangle, X, WifiOff, Wifi } from 'lucide-react';
+import { Thermometer, Zap, Activity, Clock, Cpu, BarChart3, TrendingUp, Package, AlertTriangle, X, WifiOff } from 'lucide-react';
 import ReactECharts from 'echarts-for-react';
 import enMessages from '@/locales/en.json';
 import viMessages from '@/locales/vi.json';
@@ -57,10 +57,31 @@ function MachineDetailContent() {
   const messages = selectedLanguage === 'en' ? enMessages : viMessages;
 
   // Helper: hiển thị giá trị live hoặc '--'
+  // isLive = true CHỈ KHI: mock mode HOẶC (SSE live + machine ONLINE + có snapshot)
   const connState = selectedMachine?.connectionState as ConnectionStateType | undefined;
-  const isLive = selectedMachine ? isMachineLive(selectedMachine.id) || appEnv.useMock : false;
+  const isLive = selectedMachine ? (appEnv.useMock || isMachineLive(selectedMachine.id)) : false;
   const fmtLive = (val: number | undefined | null, decimals = 1) =>
-    liveMetricValue(val, isLive ? 'ONLINE' : connState, (v) => formatNumber(v, decimals), appEnv.useMock);
+    liveMetricValue(val, isLive ? 'ONLINE' : (connState || 'OFFLINE'), (v) => formatNumber(v, decimals), appEnv.useMock);
+
+  // Helper: lấy status label, nhưng khi OFFLINE thì ưu tiên hiện trạng thái kết nối
+  const getDisplayStatus = () => {
+    if (!isLive && !appEnv.useMock) {
+      // Khi không live: ưu tiên hiện trạng thái kết nối
+      if (connState === 'STALE') return selectedLanguage === 'vi' ? 'Dữ liệu cũ' : 'Stale Data';
+      if (connState === 'OFFLINE' || !connState) return selectedLanguage === 'vi' ? 'Mất kết nối' : 'Offline';
+      return selectedLanguage === 'vi' ? 'Không xác định' : 'Unknown';
+    }
+    return getStatusLabel(selectedMachine.status);
+  };
+
+  // Helper: màu status dot
+  const getStatusDotColor = () => {
+    if (!isLive && !appEnv.useMock) return '#ef4444'; // Red for offline
+    if (selectedMachine.status === 'RUN') return '#22c55e';
+    if (selectedMachine.status === 'FAULT') return '#ef4444';
+    if (selectedMachine.status === 'IDLE') return '#60a5fa';
+    return '#facc15';
+  };
 
   const getStatusLabel = (status: string) => {
     if (status === 'RUN') return messages.machine.running;
@@ -130,6 +151,14 @@ function MachineDetailContent() {
       }
 
       if (!active) return;
+
+      // CHỈ tạo fallback history ở mock mode
+      // Ở live mode (không mock), nếu không có history thật từ BE thì để trống
+      if (!appEnv.useMock) {
+        setHistory([]);
+        return;
+      }
+
       const pointCount = 30;
       const windowMs = Math.max(1, Math.max(
         getTimeRangeConfig(timeRange).totalMinutes,
@@ -138,38 +167,17 @@ function MachineDetailContent() {
       const stepMs = Math.max(1000, Math.floor(windowMs / pointCount));
       const initData = Array.from({ length: pointCount }).map((_, i) => {
         const ts = new Date(Date.now() - (pointCount - 1 - i) * stepMs).toISOString();
-        if (appEnv.useMock) {
-          return {
-            timestamp: ts,
-            oee: selected.oee + (Math.random() * 4 - 2),
-            availability: selected.availability,
-            performance: selected.performance,
-            quality: selected.quality,
-            powerKw: selected.powerKw + (Math.random() * 2 - 1),
-            temperatureC: selected.temperatureC ? selected.temperatureC + (Math.random() * 2 - 1) : 0,
-            vibrationPct: selected.vibrationPct ? selected.vibrationPct + (Math.random() * 5 - 2.5) : 0,
-            spindleSpeedRpm: selected.spindleSpeedRpm ? selected.spindleSpeedRpm + (Math.random() * 10 - 5) : 0,
-            feedRateMmMin: selected.feedRateMmMin ? selected.feedRateMmMin + (Math.random() * 5 - 2.5) : 0,
-            cuttingSpeedMMin: selected.cuttingSpeedMMin,
-            depthOfCutMm: selected.depthOfCutMm,
-            feedPerToothMm: selected.feedPerToothMm,
-            widthOfCutMm: selected.widthOfCutMm,
-            materialRemovalRateCm3Min: selected.materialRemovalRateCm3Min,
-            cycleTimeSec: selected.cycleTimeSec,
-          };
-        }
-
         return {
           timestamp: ts,
-          oee: selected.oee,
+          oee: selected.oee + (Math.random() * 4 - 2),
           availability: selected.availability,
           performance: selected.performance,
           quality: selected.quality,
-          powerKw: selected.powerKw,
-          temperatureC: selected.temperatureC || 0,
-          vibrationPct: selected.vibrationPct || 0,
-          spindleSpeedRpm: selected.spindleSpeedRpm || 0,
-          feedRateMmMin: selected.feedRateMmMin || 0,
+          powerKw: selected.powerKw + (Math.random() * 2 - 1),
+          temperatureC: selected.temperatureC ? selected.temperatureC + (Math.random() * 2 - 1) : 0,
+          vibrationPct: selected.vibrationPct ? selected.vibrationPct + (Math.random() * 5 - 2.5) : 0,
+          spindleSpeedRpm: selected.spindleSpeedRpm ? selected.spindleSpeedRpm + (Math.random() * 10 - 5) : 0,
+          feedRateMmMin: selected.feedRateMmMin ? selected.feedRateMmMin + (Math.random() * 5 - 2.5) : 0,
           cuttingSpeedMMin: selected.cuttingSpeedMMin,
           depthOfCutMm: selected.depthOfCutMm,
           feedPerToothMm: selected.feedPerToothMm,
@@ -459,7 +467,7 @@ function MachineDetailContent() {
           <div className="grid grid-cols-2 md:grid-cols-6 gap-3 w-full md:w-auto">
             <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg px-3 py-2">
               <p className="text-[10px] uppercase text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Trạng thái' : 'Trạng thái'}</p>
-              <p className={`text-sm font-semibold ${selectedMachine.status === 'FAULT' ? 'text-industrial-error' : selectedMachine.status === 'RUN' ? 'text-industrial-success' : 'text-industrial-info'}`}>{getStatusLabel(selectedMachine.status)}</p>
+              <p className={`text-sm font-semibold ${!isLive && !appEnv.useMock ? 'text-industrial-error' : selectedMachine.status === 'FAULT' ? 'text-industrial-error' : selectedMachine.status === 'RUN' ? 'text-industrial-success' : 'text-industrial-info'}`}>{getDisplayStatus()}</p>
             </div>
             <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg px-3 py-2">
               <p className="text-[10px] uppercase text-industrial-text-secondary">{selectedLanguage === 'en' ? 'Chế độ' : 'Chế độ'}</p>
@@ -522,23 +530,22 @@ function MachineDetailContent() {
                   <p className="metric-label">{messages.machine.status}</p>
                   <div className="flex items-center gap-2 mt-1">
                     <div
-                      className="w-3 h-3 rounded-full animate-pulse"
+                      className={`w-3 h-3 rounded-full ${isLive || appEnv.useMock ? 'animate-pulse' : ''}`}
                       style={{
-                        backgroundColor:
-                          selectedMachine.status === 'RUN'
-                            ? '#22c55e'
-                            : selectedMachine.status === 'FAULT'
-                            ? '#ef4444'
-                            : '#60a5fa',
+                        backgroundColor: getStatusDotColor(),
                       }}
                     ></div>
                     <p className="text-sm font-semibold text-industrial-text">
-                      {selectedMachine.status === 'RUN' && (messages.machine.running || 'Đang Chạy')}
-                      {selectedMachine.status === 'FAULT' && (messages.machine.fault || 'Trục trặc')}
-                      {selectedMachine.status === 'IDLE' && (messages.machine.idle || 'Đang chờ')}
-                      {selectedMachine.status === 'STOP' && (messages.machine.stopped || 'Dừng')}
+                      {getDisplayStatus()}
                     </p>
                   </div>
+                  {/* Connection state info */}
+                  {!appEnv.useMock && !isLive && (
+                    <div className="mt-2 flex items-center gap-1 text-xs text-industrial-error/80">
+                      <WifiOff size={12} />
+                      <span>{selectedLanguage === 'vi' ? 'Không có dữ liệu live từ PLC' : 'No live PLC data'}</span>
+                    </div>
+                  )}
                 </div>
 
                 <div className="pt-2 border-t border-industrial-border/20">
@@ -567,15 +574,15 @@ function MachineDetailContent() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg p-4">
                   <p className="text-xs uppercase text-industrial-text-secondary mb-2">{selectedLanguage === 'en' ? 'Robot Zone' : 'Khu vực robot'}</p>
-                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Program' : 'Chương trình'}: {selectedMachine.rawTelemetry?.programName || selectedMachine.currentProgram}</p>
-                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Mode' : 'Chế độ'}: {selectedMachine.rawTelemetry?.mode || selectedMachine.mode}</p>
-                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Servo load' : 'Tải servo'}: {formatNumber(selectedMachine.rawTelemetry?.servoLoadPct ?? selectedMachine.servoLoadPct ?? 0, 0)}%</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Program' : 'Chương trình'}: {isLive || appEnv.useMock ? (selectedMachine.rawTelemetry?.programName || selectedMachine.currentProgram) : '--'}</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Mode' : 'Chế độ'}: {isLive || appEnv.useMock ? (selectedMachine.rawTelemetry?.mode || selectedMachine.mode) : '--'}</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Servo load' : 'Tải servo'}: {fmtLive(selectedMachine.rawTelemetry?.servoLoadPct ?? selectedMachine.servoLoadPct, 0)}%</p>
                 </div>
                 <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg p-4">
                   <p className="text-xs uppercase text-industrial-text-secondary mb-2">{selectedLanguage === 'en' ? 'Cell Handshake' : 'Đồng bộ cell'}</p>
-                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Ready/Busy' : 'Sẵn sàng/Bận'}: {selectedMachine.status === 'RUN' ? (selectedLanguage === 'en' ? 'READY' : 'SẴN SÀNG') : (selectedLanguage === 'en' ? 'WAIT' : 'CHỜ')}</p>
-                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Safety interlock' : 'Liên động an toàn'}: {selectedMachine.status === 'FAULT' ? (selectedLanguage === 'en' ? 'TRIPPED' : 'KÍCH HOẠT') : (selectedLanguage === 'en' ? 'OK' : 'BÌNH THƯỜNG')}</p>
-                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Energy' : 'Năng lượng'}: {formatNumber(selectedMachine.rawTelemetry?.powerKw ?? selectedMachine.powerKw, 1)} kW</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Ready/Busy' : 'Sẵn sàng/Bận'}: {isLive || appEnv.useMock ? (selectedMachine.status === 'RUN' ? (selectedLanguage === 'en' ? 'READY' : 'SẴN SÀNG') : (selectedLanguage === 'en' ? 'WAIT' : 'CHỜ')) : '--'}</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Safety interlock' : 'Liên động an toàn'}: {isLive || appEnv.useMock ? (selectedMachine.status === 'FAULT' ? (selectedLanguage === 'en' ? 'TRIPPED' : 'KÍCH HOẠT') : (selectedLanguage === 'en' ? 'OK' : 'BÌNH THƯỜNG')) : '--'}</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Energy' : 'Năng lượng'}: {fmtLive(selectedMachine.rawTelemetry?.powerKw ?? selectedMachine.powerKw)} kW</p>
                 </div>
               </div>
             )}
@@ -584,15 +591,15 @@ function MachineDetailContent() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg p-4">
                   <p className="text-xs uppercase text-industrial-text-secondary mb-2">{selectedLanguage === 'en' ? 'Machining Process' : 'Quá trình gia công'}</p>
-                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Spindle' : 'Trục chính'}: {selectedMachine.rawTelemetry?.spindleRpm ?? selectedMachine.spindleSpeedRpm ?? 0} rpm</p>
-                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Feed' : 'Lượng chạy dao'}: {selectedMachine.rawTelemetry?.feedRateMmMin ?? selectedMachine.feedRateMmMin ?? 0} mm/min</p>
-                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Cycle' : 'Chu kỳ'}: {selectedMachine.cycleTimeSec}s</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Spindle' : 'Trục chính'}: {fmtLive(selectedMachine.rawTelemetry?.spindleRpm ?? selectedMachine.spindleSpeedRpm, 0)} rpm</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Feed' : 'Lượng chạy dao'}: {fmtLive(selectedMachine.rawTelemetry?.feedRateMmMin ?? selectedMachine.feedRateMmMin, 1)} mm/min</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Cycle' : 'Chu kỳ'}: {fmtLive(selectedMachine.cycleTimeSec, 0)}s</p>
                 </div>
                 <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg p-4">
                   <p className="text-xs uppercase text-industrial-text-secondary mb-2">{selectedLanguage === 'en' ? 'Condition Monitoring' : 'Giám sát tình trạng'}</p>
-                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Temperature' : 'Nhiệt độ'}: {formatNumber(selectedMachine.rawTelemetry?.temperatureC ?? selectedMachine.temperatureC ?? 0, 1)}C</p>
-                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Vibration' : 'Độ rung'}: {formatNumber(selectedMachine.rawTelemetry?.vibrationPct ?? selectedMachine.vibrationPct ?? 0, 1)}%</p>
-                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Tool life' : 'Tuổi thọ dao'}: {formatNumber(selectedMachine.predictions?.remainingToolLifePct ?? selectedMachine.toolLifeRemainingPct ?? 0, 0)}%</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Temperature' : 'Nhiệt độ'}: {fmtLive(selectedMachine.rawTelemetry?.temperatureC ?? selectedMachine.temperatureC)}C</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Vibration' : 'Độ rung'}: {fmtLive(selectedMachine.rawTelemetry?.vibrationPct ?? selectedMachine.vibrationPct)}%</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Tool life' : 'Tuổi thọ dao'}: {fmtLive(selectedMachine.predictions?.remainingToolLifePct ?? selectedMachine.toolLifeRemainingPct, 0)}%</p>
                 </div>
               </div>
             )}
@@ -601,15 +608,15 @@ function MachineDetailContent() {
               <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
                 <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg p-4">
                   <p className="text-xs uppercase text-industrial-text-secondary mb-2">{selectedLanguage === 'en' ? 'Robot Zone' : 'Khu vực robot'}</p>
-                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Program' : 'Chương trình'}: {selectedMachine.rawTelemetry?.programName || selectedMachine.currentProgram}</p>
-                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Servo load' : 'Tải servo'}: {formatNumber(selectedMachine.rawTelemetry?.servoLoadPct ?? selectedMachine.servoLoadPct ?? 0, 0)}%</p>
-                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Cell state' : 'Trạng thái cell'}: {selectedMachine.rawTelemetry?.state || selectedMachine.status}</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Program' : 'Chương trình'}: {isLive || appEnv.useMock ? (selectedMachine.rawTelemetry?.programName || selectedMachine.currentProgram) : '--'}</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Servo load' : 'Tải servo'}: {fmtLive(selectedMachine.rawTelemetry?.servoLoadPct ?? selectedMachine.servoLoadPct, 0)}%</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Cell state' : 'Trạng thái cell'}: {isLive || appEnv.useMock ? (selectedMachine.rawTelemetry?.state || selectedMachine.status) : '--'}</p>
                 </div>
                 <div className="bg-industrial-darker/50 border border-industrial-border/20 rounded-lg p-4">
                   <p className="text-xs uppercase text-industrial-text-secondary mb-2">{selectedLanguage === 'en' ? 'Machining Zone' : 'Khu vực gia công'}</p>
-                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Spindle' : 'Trục chính'}: {selectedMachine.rawTelemetry?.spindleRpm ?? selectedMachine.spindleSpeedRpm ?? 0} rpm</p>
-                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Feed' : 'Lượng chạy dao'}: {selectedMachine.rawTelemetry?.feedRateMmMin ?? selectedMachine.feedRateMmMin ?? 0} mm/min</p>
-                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Quality output' : 'Sản lượng đạt'}: {selectedMachine.goodCount}/{selectedMachine.partCount}</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Spindle' : 'Trục chính'}: {fmtLive(selectedMachine.rawTelemetry?.spindleRpm ?? selectedMachine.spindleSpeedRpm, 0)} rpm</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Feed' : 'Lượng chạy dao'}: {fmtLive(selectedMachine.rawTelemetry?.feedRateMmMin ?? selectedMachine.feedRateMmMin, 1)} mm/min</p>
+                  <p className="text-sm text-industrial-text">{selectedLanguage === 'en' ? 'Quality output' : 'Sản lượng đạt'}: {isLive || appEnv.useMock ? `${selectedMachine.goodCount}/${selectedMachine.partCount}` : '--'}</p>
                 </div>
               </div>
             )}
@@ -646,7 +653,7 @@ function MachineDetailContent() {
                 <div className="bg-industrial-darker p-4 rounded-lg border border-industrial-border/10 cursor-pointer hover:bg-industrial-card transition-colors" onClick={() => setSelectedMetric('spindleSpeedRpm')}>
                   <p className="text-sm text-industrial-text-secondary mb-2">{selectedLanguage === 'en' ? 'Spindle Speed' : 'Tốc độ trục chính'}</p>
                   <p className="text-xl font-bold text-industrial-text">
-                    {selectedMachine.spindleSpeedRpm} <span className="text-xs font-normal">rpm</span>
+                    {fmtLive(selectedMachine.spindleSpeedRpm, 0)} <span className="text-xs font-normal">rpm</span>
                   </p>
                 </div>
               )}
@@ -655,7 +662,7 @@ function MachineDetailContent() {
                 <div className="bg-industrial-darker p-4 rounded-lg border border-industrial-border/10 cursor-pointer hover:bg-industrial-card transition-colors" onClick={() => setSelectedMetric('feedRateMmMin')}>
                   <p className="text-sm text-industrial-text-secondary mb-2">{selectedLanguage === 'en' ? 'Feed Rate' : 'Lượng chạy dao'}</p>
                   <p className="text-xl font-bold text-industrial-text">
-                    {selectedMachine.feedRateMmMin} <span className="text-xs font-normal">mm/min</span>
+                    {fmtLive(selectedMachine.feedRateMmMin)} <span className="text-xs font-normal">mm/min</span>
                   </p>
                 </div>
               )}
@@ -664,7 +671,7 @@ function MachineDetailContent() {
                 <div className="bg-industrial-darker p-4 rounded-lg border border-industrial-border/10 cursor-pointer hover:bg-industrial-card transition-colors" onClick={() => setSelectedMetric('cuttingSpeedMMin')}>
                   <p className="text-sm text-industrial-text-secondary mb-2">{selectedLanguage === 'en' ? 'Cutting Speed' : 'Vận tốc cắt'}</p>
                   <p className="text-xl font-bold text-industrial-text">
-                    {selectedMachine.cuttingSpeedMMin} <span className="text-xs font-normal">m/min</span>
+                    {fmtLive(selectedMachine.cuttingSpeedMMin)} <span className="text-xs font-normal">m/min</span>
                   </p>
                 </div>
               )}
@@ -673,7 +680,7 @@ function MachineDetailContent() {
                 <div className="bg-industrial-darker p-4 rounded-lg border border-industrial-border/10 cursor-pointer hover:bg-industrial-card transition-colors" onClick={() => setSelectedMetric('materialRemovalRateCm3Min')}>
                   <p className="text-sm text-industrial-text-secondary mb-2">{selectedLanguage === 'en' ? 'MRR' : 'Tốc độ bóc tách'}</p>
                   <p className="text-xl font-bold text-industrial-text">
-                    {selectedMachine.materialRemovalRateCm3Min} <span className="text-xs font-normal">cm³/min</span>
+                    {fmtLive(selectedMachine.materialRemovalRateCm3Min)} <span className="text-xs font-normal">cm³/min</span>
                   </p>
                 </div>
               )}
@@ -794,24 +801,24 @@ function MachineDetailContent() {
                       <div className="w-12 h-12 rounded-full bg-industrial-border/10 flex items-center justify-center mb-3 text-industrial-border">
                          <Package size={24} />
                       </div>
-                      <span className="text-3xl font-bold font-mono text-industrial-text">{selectedMachine.partCount}</span>
+                      <span className="text-3xl font-bold font-mono text-industrial-text">{isLive || appEnv.useMock ? selectedMachine.partCount : '--'}</span>
                       <span className="text-xs text-industrial-text-secondary mt-1">{messages.machine.partCount}</span>
                   </div>
                   <div className="bg-industrial-card border border-industrial-error/5 rounded-lg p-4 flex flex-col items-center justify-center text-center">
                       <div className="w-12 h-12 rounded-full bg-industrial-error/10 flex items-center justify-center mb-3 text-industrial-error">
                          <AlertTriangle size={24} />
                       </div>
-                      <span className="text-3xl font-bold font-mono text-industrial-error">{selectedMachine.ngCount}</span>
+                      <span className="text-3xl font-bold font-mono text-industrial-error">{isLive || appEnv.useMock ? selectedMachine.ngCount : '--'}</span>
                       <span className="text-xs text-industrial-error mt-1">{messages.machine.ngParts || 'NG Parts'}</span>
                   </div>
                 </div>
                 <div className="mt-4 bg-industrial-bg/40 border border-industrial-border/10 rounded-lg p-3">
                   <div className="flex justify-between text-xs mb-2">
-                    <span className="text-industrial-success">{selectedLanguage === 'en' ? 'Good Ratio' : 'Tỷ lệ đạt'}: {formatNumber(goodRatio, 1)}%</span>
-                    <span className="text-industrial-error">{selectedLanguage === 'en' ? 'NG Ratio' : 'Tỷ lệ lỗi'}: {formatNumber(ngRatio, 1)}%</span>
+                    <span className="text-industrial-success">{selectedLanguage === 'en' ? 'Good Ratio' : 'Tỷ lệ đạt'}: {isLive || appEnv.useMock ? `${formatNumber(goodRatio, 1)}%` : '--'}</span>
+                    <span className="text-industrial-error">{selectedLanguage === 'en' ? 'NG Ratio' : 'Tỷ lệ lỗi'}: {isLive || appEnv.useMock ? `${formatNumber(ngRatio, 1)}%` : '--'}</span>
                   </div>
                   <div className="h-2 rounded-full bg-industrial-card overflow-hidden border border-industrial-border/10">
-                    <div className="h-full bg-industrial-success" style={{ width: `${Math.min(100, goodRatio)}%` }}></div>
+                    <div className="h-full bg-industrial-success" style={{ width: `${isLive || appEnv.useMock ? Math.min(100, goodRatio) : 0}%` }}></div>
                   </div>
                 </div>
               </div>
@@ -917,13 +924,13 @@ function MachineDetailContent() {
                   <div
                     className="h-full rounded-full transition-all duration-500"
                     style={{
-                      width: `${selectedMachine.toolLifeRemainingPct}%`,
+                      width: `${isLive || appEnv.useMock ? selectedMachine.toolLifeRemainingPct : 0}%`,
                       backgroundColor: selectedMachine.toolLifeRemainingPct > 30 ? '#1e90ff' : '#ef4444'
                     }}
                   ></div>
                 </div>
                 <p className="text-xs text-industrial-text-secondary mt-2 flex justify-between">
-                  <span>{selectedMachine.toolLifeRemainingPct}%</span>
+                  <span>{fmtLive(selectedMachine.toolLifeRemainingPct, 0)}%</span>
                   <span>{selectedLanguage === 'en' ? 'Remaining' : 'Còn lại'}</span>
                 </p>
               </div>

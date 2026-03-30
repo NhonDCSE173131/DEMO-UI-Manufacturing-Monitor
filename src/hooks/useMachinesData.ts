@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { machinesApi } from '@/lib/api/machines';
 import { appEnv } from '@/lib/config/env';
 import { useMachineStore } from '@/lib/store';
@@ -14,7 +14,9 @@ import {
   type MachineImageOverride,
 } from '@/lib/machine-image-overrides';
 
-export const useMachinesData = () => {
+const DEFAULT_POLL_MS = 30_000; // 30 giây
+
+export const useMachinesData = (pollIntervalMs: number = DEFAULT_POLL_MS) => {
   const { machines: storeMachines, events: storeEvents } = useMachineStore();
   const { snapshotsByMachineId, connectionStateByMachineId, lastSeenByMachineId, dataFreshnessByMachineId } = useRealtimeStore();
   const [machines, setMachines] = useState<Machine[]>(
@@ -24,6 +26,7 @@ export const useMachinesData = () => {
   const [imageOverrides, setImageOverrides] = useState<Record<string, MachineImageOverride>>(loadMachineImageOverrides());
   const [loading, setLoading] = useState(!appEnv.useMock);
   const [error, setError] = useState<string | null>(null);
+  const initialLoadDone = useRef(false);
 
   const syncImageOverrides = useCallback(() => {
     const overrides = loadMachineImageOverrides();
@@ -33,7 +36,7 @@ export const useMachinesData = () => {
 
   const load = useCallback(async () => {
     if (appEnv.useMock) return;
-    setLoading(true);
+    if (!initialLoadDone.current) setLoading(true);
     setError(null);
     try {
       const [apiMachines, apiSnapshots] = await Promise.all([
@@ -48,19 +51,30 @@ export const useMachinesData = () => {
       const overrides = loadMachineImageOverrides();
       setImageOverrides(overrides);
       setMachines(applyMachineImageOverrides(mergedMachines, overrides));
-      setEvents([]);
+      if (!initialLoadDone.current) setEvents([]);
+      initialLoadDone.current = true;
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Không tải được dữ liệu máy');
-      setMachines([]);
-      setEvents([]);
+      if (!initialLoadDone.current) {
+        setMachines([]);
+        setEvents([]);
+      }
     } finally {
       setLoading(false);
     }
   }, []);
 
+  // Lần đầu load
   useEffect(() => {
     load();
   }, [load]);
+
+  // Polling tự động - refresh REST data định kỳ
+  useEffect(() => {
+    if (appEnv.useMock || pollIntervalMs <= 0) return;
+    const timer = setInterval(() => { void load(); }, pollIntervalMs);
+    return () => clearInterval(timer);
+  }, [load, pollIntervalMs]);
 
   useEffect(() => {
     if (appEnv.useMock) {

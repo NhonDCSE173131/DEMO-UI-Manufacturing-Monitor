@@ -56,17 +56,28 @@ const simulateRealTimeUpdates = (set: any, _get: any) => {
         if (machine.status === 'RUN') {
           const variation = () => (Math.random() - 0.5) * 0.1;
 
+          // Sản xuất: khi tạo thêm part, nó phải là good HOẶC ng, không được tăng độc lập
+          const newPartProduced = Math.random() > 0.95;
+          let newPartCount = machine.partCount;
+          let newGoodCount = machine.goodCount;
+          let newNgCount = machine.ngCount;
+          if (newPartProduced) {
+            newPartCount += 1;
+            // ~97% sản phẩm tốt, ~3% lỗi
+            if (Math.random() > 0.97) {
+              newNgCount += 1;
+            } else {
+              newGoodCount += 1;
+            }
+          }
+
           return {
             ...machine,
             powerKw: Math.max(0.5, machine.powerKw + machine.powerKw * variation()),
             energyTodayKwh: machine.energyTodayKwh + machine.powerKw / 120, // Every 30s update
-            partCount: Math.random() > 0.95 ? machine.partCount + 1 : machine.partCount,
-            goodCount:
-              machine.goodCount +
-              (Math.random() > 0.97 ? 0 : Math.random() > 0.5 ? 1 : 0),
-            ngCount:
-              machine.ngCount +
-              (Math.random() > 0.98 ? 0 : Math.random() > 0.5 ? 1 : 0),
+            partCount: newPartCount,
+            goodCount: newGoodCount,
+            ngCount: newNgCount,
             oee: Math.min(
               100,
               Math.max(
