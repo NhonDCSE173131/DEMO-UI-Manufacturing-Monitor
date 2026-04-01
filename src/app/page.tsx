@@ -18,6 +18,18 @@ import { buildTimeAxisLabels, getDowntimeUnitLabel, getTimeRangeConfig, normaliz
 import { ConnectionBadge, liveMetricValue } from '@/components/ConnectionBadge';
 import { ChartNoData } from '@/components/ChartNoData';
 import { useRealtimeStore } from '@/lib/realtime-store';
+import {
+  buildRealtimeLiveChart,
+  buildOeeByMachineChart,
+  buildPowerDonutChart,
+  buildStockLineChart,
+  chartColors,
+  stockTooltip,
+  stockGrid,
+  stockXAxis,
+  stockYAxis,
+  stockBarSeries,
+} from '@/lib/chart-config';
 
 const toAnalyticsQuery = (range: TimeRange) => {
   const rangeConfig = getTimeRangeConfig(range);
@@ -27,6 +39,35 @@ const toAnalyticsQuery = (range: TimeRange) => {
     interval: range === '60s' ? 'raw' : range === '1h' ? '5m' : range === '1d' ? '1h' : range === '1w' ? '6h' : '1d',
     aggregation: 'avg',
   } as const;
+};
+
+const toSafeNumber = (value: unknown): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+};
+
+const getTrendPointValue = (point: Record<string, unknown>): number | null => {
+  const metrics = point.metrics && typeof point.metrics === 'object' ? (point.metrics as Record<string, unknown>) : null;
+  return (
+    toSafeNumber(point.value) ??
+    toSafeNumber(point.energyKwh) ??
+    toSafeNumber(point.totalEnergyKwh) ??
+    toSafeNumber(point.powerKw) ??
+    toSafeNumber(point.totalPowerKw) ??
+    toSafeNumber(metrics?.totalEnergyKwh) ??
+    toSafeNumber(metrics?.energyKwh) ??
+    toSafeNumber(metrics?.totalPowerKw) ??
+    toSafeNumber(metrics?.powerKw)
+  );
+};
+
+const getTrendPointLabel = (point: Record<string, unknown>): string => {
+  const raw = point.label ?? point.timestamp ?? point.ts ?? point.bucketEnd;
+  return typeof raw === 'string' && raw.trim() !== '' ? raw : '';
 };
 
 const Dashboard = () => {
@@ -48,9 +89,11 @@ const Dashboard = () => {
 
   /** Dashboard-level helper: is a machine live? */
   const machineIsLive = (machineId: string) => isMachineLive(machineId);
+  /** §5.2: fmtDash uses actual connectionState for UNSTABLE etc. */
   const fmtDash = (machineId: string, val: number | undefined | null, decimals = 1) => {
     const live = machineIsLive(machineId);
-    return liveMetricValue(val, live ? 'ONLINE' : 'OFFLINE', (v) => formatNumber(v, decimals));
+    const conn = machines.find(m => m.id === machineId)?.connectionState;
+    return liveMetricValue(val, live ? (conn || 'ONLINE') : 'OFFLINE', (v) => formatNumber(v, decimals));
   };
 
   const resolveDisplayState = (machine: (typeof machines)[number]) => {
@@ -91,24 +134,34 @@ const Dashboard = () => {
   const displayMachines = filteredMachines.length > 0 ? filteredMachines : machines;
 
   // ─── KPIs ───────────────────────────────────────────────────
-  // Ưu tiên: REST overview (nếu có) → tính từ machines (SSE-patched real-time từ BE)
-  // machines đã được SSE patch liên tục bởi RealtimeProvider → useMachinesData,
-  // nên giá trị luôn phản ánh data mới nhất BE gửi.
+  // §5.10: Chỉ tính từ machines có dữ liệu thật, không dùng ?? 0 để trộn
+  const livePowerMachines = displayMachines.filter(m => m.powerKw != null);
   const totalPower = overview?.plantPowerKw
-    ?? (displayMachines.length > 0 ? displayMachines.reduce((sum, m) => sum + (m.powerKw ?? 0), 0) : undefined);
+    ?? (livePowerMachines.length > 0 ? livePowerMachines.reduce((sum, m) => sum + m.powerKw!, 0) : undefined);
+  const liveEnergyMachines = displayMachines.filter(m => m.energyTodayKwh != null);
   const totalEnergy = overview?.todayEnergyKwh
-    ?? (displayMachines.length > 0 ? displayMachines.reduce((sum, m) => sum + (m.energyTodayKwh ?? 0), 0) : undefined);
+    ?? (liveEnergyMachines.length > 0 ? liveEnergyMachines.reduce((sum, m) => sum + m.energyTodayKwh!, 0) : undefined);
+  const oeeValidMachines = displayMachines.filter(m => m.oee != null);
   const avgOEE = overview?.todayOee ?? oeeAnalytics.overview?.oee ?? oeeAnalytics.overview?.avgOee
-    ?? (displayMachines.length > 0
-      ? displayMachines.reduce((sum, m) => sum + (m.oee ?? 0), 0) / displayMachines.length
+    ?? (oeeValidMachines.length > 0
+      ? oeeValidMachines.reduce((sum, m) => sum + m.oee!, 0) / oeeValidMachines.length
       : undefined);
 
   const totalProduction = oeeAnalytics.overview?.totalOutput
-    ?? (displayMachines.length > 0 ? displayMachines.reduce((sum, m) => sum + (m.partCount ?? 0), 0) : undefined);
+    ?? (() => {
+      const ms = displayMachines.filter(m => m.partCount != null);
+      return ms.length > 0 ? ms.reduce((sum, m) => sum + m.partCount!, 0) : undefined;
+    })();
   const totalGood = oeeAnalytics.overview?.goodOutput
-    ?? (displayMachines.length > 0 ? displayMachines.reduce((sum, m) => sum + (m.goodCount ?? 0), 0) : undefined);
+    ?? (() => {
+      const ms = displayMachines.filter(m => m.goodCount != null);
+      return ms.length > 0 ? ms.reduce((sum, m) => sum + m.goodCount!, 0) : undefined;
+    })();
   const totalNG = oeeAnalytics.overview?.rejectOutput
-    ?? (displayMachines.length > 0 ? displayMachines.reduce((sum, m) => sum + (m.ngCount ?? 0), 0) : undefined);
+    ?? (() => {
+      const ms = displayMachines.filter(m => m.ngCount != null);
+      return ms.length > 0 ? ms.reduce((sum, m) => sum + m.ngCount!, 0) : undefined;
+    })();
 
   const productionDataValid =
     totalProduction != null && totalGood != null && totalNG != null
@@ -134,43 +187,43 @@ const Dashboard = () => {
   const downtimeUnitLabel = getDowntimeUnitLabel(downtimeRange, localeKey);
   const energyUnitLabel = energyRangeConfig.energyUnit;
 
-  // OEE chart: ưu tiên analytics API → fallback về machines (SSE-patched)
+  // §5.8: Không dùng ?? 0, chart dùng null cho giá trị thiếu
   const oeeChartData = oeeAnalytics.byMachine.length > 0
     ? oeeAnalytics.byMachine.map((m) => ({
         label: String(m.machineCode || m.machineName || m.label || m.key || m.id || ''),
-        value: Number(m.oee ?? m.value ?? 0),
+        value: m.oee ?? m.value ?? null,
       }))
     : displayMachines
-        .filter((m) => m.oee !== undefined)
-        .map((m) => ({ label: m.code, value: Number(m.oee) }));
-  const hasOeeChartData = oeeChartData.length > 0;
+        .filter((m) => m.oee != null)
+        .map((m) => ({ label: m.code, value: m.oee! }));
+  const hasOeeChartData = oeeChartData.length > 0 && oeeChartData.some(d => d.value != null && d.value > 0);
 
-  // Power pie: ưu tiên analytics API → fallback về machines (SSE-patched)
+  // §5.8: Không dùng ?? 0 cho giá trị thiếu
   const powerPieData = energyAnalytics.byMachine.length > 0
-    ? energyAnalytics.byMachine.map((m) => {
-        const value = Number(m.value ?? m.total ?? 0);
-        const label = String(m.machineCode || m.machineName || m.label || m.key || m.id || '');
-        return { value, name: `${label} (${value}${powerRangeConfig.energyUnit})` };
-      })
+    ? energyAnalytics.byMachine
+        .filter((m) => (m.value ?? m.total) != null)
+        .map((m) => {
+          const value = Number(m.value ?? m.total);
+          const label = String(m.machineCode || m.machineName || m.label || m.key || m.id || '');
+          return { value, name: label };
+        })
     : displayMachines
-      .filter((m) => m.powerKw !== undefined)
+      .filter((m) => m.powerKw != null)
       .map((m) => {
-        const power = m.powerKw ?? 0;
+        const power = m.powerKw!;
         const rawValue = powerRangeConfig.energyUnit === 'kW' ? power : (power * powerRangeConfig.totalMinutes) / 60;
         const value = Math.round(rawValue * 10) / 10;
-        return { value, name: `${m.code} (${value}${powerRangeConfig.energyUnit})` };
+        return { value, name: m.code };
       });
-  const hasPowerPieData = powerPieData.length > 0;
+  const hasPowerPieData = powerPieData.length > 0 && powerPieData.some(d => d.value > 0);
 
-  // Energy trend: ưu tiên analytics API → fallback về SSE telemetry series (realtime)
+  // §5.8: Dùng null cho giá trị thiếu, không dùng ?? 0
   const energyTrendFromApi = energyAnalytics.trend.length > 0
-    ? energyAnalytics.trend.map((p) => Number(p.value ?? p.energyKwh ?? p.powerKw ?? 0))
+    ? energyAnalytics.trend.map((p) => getTrendPointValue(p as Record<string, unknown>))
     : null;
 
-  // Build energy trend from SSE telemetry khi API không có data
   const energyTrendFromSse = useMemo(() => {
-    if (energyTrendFromApi) return null; // Không cần, đã có API data
-    // Gom tất cả telemetry points, nhóm theo thời gian, tính tổng powerKw
+    if (energyTrendFromApi) return null;
     const windowMs = energyRangeConfig.totalMinutes * 60 * 1000;
     const fromMs = Date.now() - windowMs;
     const allPoints: { ts: number; powerKw: number }[] = [];
@@ -183,7 +236,6 @@ const Dashboard = () => {
       }
     }
     if (allPoints.length === 0) return null;
-    // Nhóm theo buckets
     const bucketCount = energyRangeConfig.pointCount;
     const bucketSize = windowMs / bucketCount;
     const buckets = Array.from({ length: bucketCount }, () => ({ sum: 0, count: 0 }));
@@ -192,112 +244,95 @@ const Dashboard = () => {
       buckets[idx].sum += p.powerKw;
       buckets[idx].count += 1;
     }
-    return buckets.map((b) => (b.count > 0 ? Math.round((b.sum / b.count) * 100) / 100 : 0));
+    return buckets.map((b) => (b.count > 0 ? Math.round((b.sum / b.count) * 100) / 100 : null));
   }, [energyTrendFromApi, telemetrySeriesByMachineId, energyRangeConfig.totalMinutes, energyRangeConfig.pointCount]);
 
   const energyTrendData = energyTrendFromApi ?? energyTrendFromSse;
-  const hasEnergyTrendData = energyTrendData != null && energyTrendData.length > 0;
+  const hasEnergyTrendData = energyTrendData != null && energyTrendData.some((value) => value != null);
 
   const recentDowntimeEvents = events.filter((event) => {
     const eventTime = new Date(event.timestamp).getTime();
     return eventTime >= Date.now() - downtimeRangeConfig.totalMinutes * 60 * 1000;
   });
+  const hasDowntimeData = recentDowntimeEvents.some(e => e.durationMin && e.durationMin > 0);
 
-  // OEE by Machine chart
-  const oeeByMachineOption = {
-    tooltip: { trigger: 'axis', backgroundColor: '#111', borderColor: '#17a2b8', textStyle: { color: '#fff' } },
-    grid: { left: '3%', right: '4%', bottom: '3%', top: '15%', containLabel: true },
-    xAxis: {
-      type: 'category',
-      data: oeeChartData.map((m) => m.label),
-      axisLabel: { color: '#8fb3d9', fontSize: 11 },
-      axisLine: { lineStyle: { color: '#333' } },
-    },
-    yAxis: {
-      type: 'value',
-      max: 100,
-      axisLabel: { color: '#8fb3d9', formatter: '{value}%' },
-      splitLine: { lineStyle: { color: '#1a2a3a' } },
-    },
+  // ─── §5.6 Live Trend Data (stock-chart style from SSE ring buffer) ───
+  const livePowerTrend = useMemo(() => {
+    const windowMs = 60 * 1000;
+    const fromMs = Date.now() - windowMs;
+    const bucketCount = 60;
+    const bucketSize = windowMs / bucketCount;
+    const buckets: Array<{ ts: number; sum: number; count: number }> = Array.from(
+      { length: bucketCount }, (_, i) => ({ ts: fromMs + i * bucketSize, sum: 0, count: 0 }),
+    );
+    for (const series of Object.values(telemetrySeriesByMachineId)) {
+      for (const p of series) {
+        const ts = new Date(p.timestamp).getTime();
+        if (ts >= fromMs && p.powerKw != null) {
+          const idx = Math.min(bucketCount - 1, Math.floor((ts - fromMs) / bucketSize));
+          buckets[idx].sum += p.powerKw;
+          buckets[idx].count += 1;
+        }
+      }
+    }
+    const labels = buckets.map(b => { const d = new Date(b.ts); return `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}:${d.getSeconds().toString().padStart(2,'0')}`; });
+    const values = buckets.map(b => b.count > 0 ? Math.round((b.sum / b.count) * 100) / 100 : null);
+    return { labels, values, hasData: values.some(v => v != null) };
+  }, [telemetrySeriesByMachineId]);
+
+  const liveOeeTrend = useMemo(() => {
+    const windowMs = 60 * 1000;
+    const fromMs = Date.now() - windowMs;
+    const bucketCount = 60;
+    const bucketSize = windowMs / bucketCount;
+    const buckets: Array<{ ts: number; sum: number; count: number }> = Array.from(
+      { length: bucketCount }, (_, i) => ({ ts: fromMs + i * bucketSize, sum: 0, count: 0 }),
+    );
+    for (const series of Object.values(telemetrySeriesByMachineId)) {
+      for (const p of series) {
+        const ts = new Date(p.timestamp).getTime();
+        if (ts >= fromMs && p.oee != null) {
+          const idx = Math.min(bucketCount - 1, Math.floor((ts - fromMs) / bucketSize));
+          buckets[idx].sum += p.oee;
+          buckets[idx].count += 1;
+        }
+      }
+    }
+    const labels = buckets.map(b => { const d = new Date(b.ts); return `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}:${d.getSeconds().toString().padStart(2,'0')}`; });
+    const values = buckets.map(b => b.count > 0 ? Math.round((b.sum / b.count) * 100) / 100 : null);
+    return { labels, values, hasData: values.some(v => v != null) };
+  }, [telemetrySeriesByMachineId]);
+
+  // OEE by Machine chart - Stock style
+  const oeeByMachineOption = buildOeeByMachineChart({
+    machines: oeeChartData.map((m) => m.label),
+    oeeValues: oeeChartData.map((m) => m.value),
+    targetValue: 85,
+    locale: localeKey,
+  });
+
+  // Power distribution donut - Stock style
+  const powerPieOption = buildPowerDonutChart({
+    data: powerPieData,
+    unit: powerRangeConfig.energyUnit,
+    locale: localeKey,
+  });
+
+  // Energy trend chart - Stock style
+  const energyTrendOption = buildStockLineChart({
+    xAxisData: energyAnalytics.trend.length > 0
+      ? energyAnalytics.trend.map((p) => getTrendPointLabel(p as Record<string, unknown>))
+      : energyAxisLabels,
     series: [
       {
-        name: 'OEE',
-        type: 'bar',
-        data: oeeChartData.map((m) => ({
-          value: m.value,
-          itemStyle: { color: m.value >= 85 ? '#22c55e' : m.value >= 60 ? '#facc15' : '#ef4444', borderRadius: [4, 4, 0, 0] },
-        })),
-        barWidth: '50%',
-      },
-      {
-        name: selectedLanguage === 'en' ? 'Target' : 'Mục tiêu',
-        type: 'line',
-        data: Array.from({ length: oeeChartData.length }).map(() => 85),
-        smooth: true,
-        symbol: 'none',
-        lineStyle: { type: 'dashed', color: '#facc15', width: 2 },
+        name: selectedLanguage === 'vi' ? 'Năng lượng' : 'Energy',
+        data: energyTrendData ?? [],
+        color: chartColors.primary,
+        showArea: true,
       },
     ],
-  };
-
-  // Power distribution pie
-  const powerPieOption = {
-    tooltip: { trigger: 'item', backgroundColor: '#111', borderColor: '#17a2b8', textStyle: { color: '#fff' } },
-    legend: {
-      type: 'scroll',
-      bottom: 0,
-      textStyle: { color: '#8fb3d9' },
-      pageTextStyle: { color: '#8fb3d9' },
-      pageIconColor: '#17a2b8',
-    },
-    series: [{
-      type: 'pie',
-      radius: ['50%', '75%'],
-      center: ['50%', '50%'],
-      avoidLabelOverlap: true,
-      itemStyle: { borderRadius: 4, borderColor: '#0B213F', borderWidth: 2 },
-      label: { show: false },
-      data: powerPieData,
-    }],
-  };
-
-  const energyTrendOption = {
-    tooltip: { trigger: 'axis', backgroundColor: '#111', borderColor: '#17a2b8', textStyle: { color: '#fff' } },
-    grid: { left: '3%', right: '3%', top: '12%', bottom: '8%', containLabel: true },
-    xAxis: {
-      type: 'category',
-      data: energyAxisLabels,
-      axisLabel: { color: '#8fb3d9' },
-      axisLine: { lineStyle: { color: '#333' } },
-    },
-    yAxis: {
-      type: 'value',
-      axisLabel: { color: '#8fb3d9', formatter: `{value} ${energyUnitLabel}` },
-      splitLine: { lineStyle: { color: '#1a2a3a' } },
-    },
-    series: [
-      {
-        type: 'line',
-        smooth: true,
-        symbol: 'none',
-        lineStyle: { color: '#17a2b8', width: 2 },
-        areaStyle: {
-          color: {
-            type: 'linear',
-            x: 0,
-            y: 0,
-            x2: 0,
-            y2: 1,
-            colorStops: [
-              { offset: 0, color: 'rgba(23,162,184,0.35)' },
-              { offset: 1, color: 'rgba(23,162,184,0.06)' },
-            ],
-          },
-        },
-        data: energyTrendData,
-      },
-    ],
-  };
+    yAxisUnit: energyUnitLabel,
+  });
 
   const paretoReasonMap = recentDowntimeEvents
     .filter((event) => event.durationMin && event.durationMin > 0)
@@ -308,28 +343,27 @@ const Dashboard = () => {
     }, {});
 
   const paretoItems = Object.entries(paretoReasonMap).sort((a, b) => b[1] - a[1]).slice(0, 6);
+
+  // Downtime Pareto - Stock style
   const downtimeParetoOption = {
-    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, backgroundColor: '#111', borderColor: '#ef4444', textStyle: { color: '#fff' } },
-    grid: { left: '3%', right: '3%', top: '12%', bottom: '10%', containLabel: true },
+    animation: true,
+    animationDuration: 300,
+    tooltip: stockTooltip(chartColors.danger),
+    grid: stockGrid({ bottom: '15%' }),
     xAxis: {
-      type: 'category',
+      type: 'category' as const,
       data: paretoItems.map((item) => item[0]),
-      axisLabel: { color: '#8fb3d9', rotate: 18 },
-      axisLine: { lineStyle: { color: '#333' } },
+      axisLine: { lineStyle: { color: chartColors.axisLine } },
+      axisTick: { show: false },
+      axisLabel: { color: chartColors.axisLabel, fontSize: 10, rotate: 20 },
     },
-    yAxis: {
-      type: 'value',
-      axisLabel: { color: '#8fb3d9', formatter: `{value} ${downtimeUnitLabel}` },
-      splitLine: { lineStyle: { color: '#1a2a3a' } },
-    },
-    series: [
-      {
-        type: 'bar',
-        data: paretoItems.map((item) => item[1]),
-        itemStyle: { color: '#ef4444', borderRadius: [4, 4, 0, 0] },
-        barWidth: '55%',
-      },
-    ],
+    yAxis: stockYAxis({ unit: downtimeUnitLabel }),
+    series: [stockBarSeries(
+      selectedLanguage === 'vi' ? 'Thời gian dừng' : 'Downtime',
+      paretoItems.map((item) => item[1]),
+      chartColors.danger,
+      { gradient: true }
+    )],
   };
 
   return (
@@ -576,7 +610,76 @@ const Dashboard = () => {
         </div>
       </div>
 
-      {/* Third Row: Charts */}
+      {/* §5.6 Live Trend Row — stock-chart style, SSE ring buffer */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Live Power Trend 60s */}
+        <div className="card-industrial p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="panel-title">
+              <Zap size={16} />
+              {selectedLanguage === 'en' ? 'Live Power Trend (60s)' : 'Xu hướng công suất live (60s)'}
+              <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-500/15 text-green-400 border border-green-500/30 text-[10px] font-semibold">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                LIVE
+              </span>
+            </h3>
+          </div>
+          <div className="h-52 min-w-0 overflow-hidden">
+            {livePowerTrend.hasData ? (
+              <ReactECharts 
+                option={buildRealtimeLiveChart({
+                  labels: livePowerTrend.labels,
+                  values: livePowerTrend.values,
+                  color: chartColors.success,
+                  yAxisUnit: 'kW',
+                })} 
+                style={{ height: '100%', width: '100%' }} 
+              />
+            ) : (
+              <ChartNoData
+                title={selectedLanguage === 'vi' ? 'Chưa có dữ liệu power live' : 'No live power data'}
+                message={selectedLanguage === 'vi' ? 'Đang chờ dữ liệu telemetry từ SSE...' : 'Waiting for SSE telemetry data...'}
+              />
+            )}
+          </div>
+        </div>
+
+        {/* Live OEE Trend 60s */}
+        <div className="card-industrial p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="panel-title">
+              <Activity size={16} />
+              {selectedLanguage === 'en' ? 'Live OEE Trend (60s)' : 'Xu hướng OEE live (60s)'}
+              <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-500/15 text-green-400 border border-green-500/30 text-[10px] font-semibold">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                LIVE
+              </span>
+            </h3>
+          </div>
+          <div className="h-52 min-w-0 overflow-hidden">
+            {liveOeeTrend.hasData ? (
+              <ReactECharts 
+                option={buildRealtimeLiveChart({
+                  labels: liveOeeTrend.labels,
+                  values: liveOeeTrend.values,
+                  color: chartColors.primary,
+                  yAxisUnit: '%',
+                  yAxisMin: 0,
+                  yAxisMax: 100,
+                })} 
+                style={{ height: '100%', width: '100%' }} 
+              />
+            ) : (
+              <ChartNoData
+                title={selectedLanguage === 'vi' ? 'Chưa có dữ liệu OEE live' : 'No live OEE data'}
+                message={selectedLanguage === 'vi' ? 'Đang chờ dữ liệu OEE từ SSE...' : 'Waiting for SSE OEE data...'}
+              />
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Third Row: Analytics Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* OEE by Machine Bar Chart */}
         <div className="card-industrial p-6">
@@ -584,16 +687,19 @@ const Dashboard = () => {
             <h3 className="panel-title">
               <BarChart3 size={16} />
               {messages.dashboard.oeeTrend || 'OEE by Machine'}
+              <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-400 border border-blue-500/30 text-[10px] font-semibold">
+                {selectedLanguage === 'vi' ? 'phân tích' : 'analytics'}
+              </span>
             </h3>
             <TimeRangeSelector value={oeeRange} onChange={setOeeRange} showLabel={false} />
           </div>
-          <div className="h-64">
+          <div className="h-64 min-w-0 overflow-hidden">
             {hasOeeChartData ? (
               <ReactECharts option={oeeByMachineOption} style={{ height: '100%', width: '100%' }} />
             ) : (
               <ChartNoData
-                title={selectedLanguage === 'vi' ? 'Chua co du lieu OEE theo may' : 'No OEE by-machine data'}
-                message={selectedLanguage === 'vi' ? 'Backend chua tra ve du lieu OEE theo may trong khoang nay.' : 'Backend has not returned by-machine OEE for this range.'}
+                title={selectedLanguage === 'vi' ? 'Chưa có dữ liệu OEE theo máy' : 'No OEE by-machine data'}
+                message={selectedLanguage === 'vi' ? 'Backend chưa trả về dữ liệu OEE theo máy trong khoảng này.' : 'Backend has not returned by-machine OEE for this range.'}
               />
             )}
           </div>
@@ -605,16 +711,19 @@ const Dashboard = () => {
             <h3 className="panel-title">
               <Zap size={16} />
               {messages.dashboard.powerDistribution || 'Power Distribution'}
+              <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-400 border border-blue-500/30 text-[10px] font-semibold">
+                {selectedLanguage === 'vi' ? 'phân tích' : 'analytics'}
+              </span>
             </h3>
             <TimeRangeSelector value={powerRange} onChange={setPowerRange} showLabel={false} />
           </div>
-          <div className="h-64">
+          <div className="h-64 min-w-0 overflow-hidden">
             {hasPowerPieData ? (
               <ReactECharts option={powerPieOption} style={{ height: '100%', width: '100%' }} />
             ) : (
               <ChartNoData
-                title={selectedLanguage === 'vi' ? 'Chua co du lieu phan bo dien nang' : 'No power distribution data'}
-                message={selectedLanguage === 'vi' ? 'Backend chua tra ve du lieu phan bo theo may.' : 'Backend has not returned machine power distribution.'}
+                title={selectedLanguage === 'vi' ? 'Chưa có dữ liệu phân bổ điện năng' : 'No power distribution data'}
+                message={selectedLanguage === 'vi' ? 'Backend chưa trả về dữ liệu phân bổ theo máy.' : 'Backend has not returned machine power distribution.'}
               />
             )}
           </div>
@@ -627,13 +736,13 @@ const Dashboard = () => {
             <h3 className="panel-title">{messages.dashboard.energyTrend || 'Energy Consumption Trend'}</h3>
             <TimeRangeSelector value={energyRange} onChange={setEnergyRange} showLabel={false} />
           </div>
-          <div className="h-64">
+          <div className="h-64 min-w-0 overflow-hidden">
             {hasEnergyTrendData ? (
               <ReactECharts option={energyTrendOption} style={{ height: '100%', width: '100%' }} />
             ) : (
               <ChartNoData
-                title={selectedLanguage === 'vi' ? 'Chua co du lieu xu huong nang luong' : 'No energy trend data'}
-                message={selectedLanguage === 'vi' ? 'Backend chua tra ve du lieu trend nang luong.' : 'Backend has not returned energy trend points.'}
+                title={selectedLanguage === 'vi' ? 'Chưa có dữ liệu xu hướng năng lượng' : 'No energy trend data'}
+                message={selectedLanguage === 'vi' ? 'Backend chưa trả về dữ liệu trend năng lượng.' : 'Backend has not returned energy trend points.'}
               />
             )}
           </div>
@@ -644,8 +753,15 @@ const Dashboard = () => {
             <h3 className="panel-title">{messages.dashboard.downtimeCause || 'Downtime Causes (Pareto)'}</h3>
             <TimeRangeSelector value={downtimeRange} onChange={setDowntimeRange} showLabel={false} />
           </div>
-          <div className="h-64">
-            <ReactECharts option={downtimeParetoOption} style={{ height: '100%', width: '100%' }} />
+          <div className="h-64 min-w-0 overflow-hidden">
+            {hasDowntimeData ? (
+              <ReactECharts option={downtimeParetoOption} style={{ height: '100%', width: '100%' }} />
+            ) : (
+              <ChartNoData
+                title={selectedLanguage === 'vi' ? 'Chưa có dữ liệu downtime' : 'No downtime data'}
+                message={selectedLanguage === 'vi' ? 'Không có sự kiện dừng máy có thời lượng trong khoảng này.' : 'No stop events with duration found in this range.'}
+              />
+            )}
           </div>
         </div>
       </div>
@@ -710,7 +826,7 @@ const Dashboard = () => {
                     </div>
                   </div>
                   <div className="text-right shrink-0">
-                    <p className="text-xl font-bold" style={{ color: machineIsLive(machine.id) ? ((machine.oee ?? 0) >= 85 ? '#22c55e' : (machine.oee ?? 0) >= 60 ? '#facc15' : '#ef4444') : '#6b7280' }}>{fmtDash(machine.id, machine.oee, 0)}%</p>
+                    <p className="text-xl font-bold" style={{ color: !machineIsLive(machine.id) || machine.oee == null ? '#6b7280' : machine.oee >= 85 ? '#22c55e' : machine.oee >= 60 ? '#facc15' : '#ef4444' }}>{fmtDash(machine.id, machine.oee, 0)}%</p>
                     <p className="text-[10px] text-industrial-text-secondary">OEE</p>
                   </div>
                 </div>
@@ -725,7 +841,7 @@ const Dashboard = () => {
                   </div>
                   <div className="bg-industrial-bg/50 rounded p-2 text-center">
                     <p className="text-industrial-text-secondary">{(messages.dashboard as any).healthShort || (selectedLanguage === 'en' ? 'Health' : 'Sức khỏe')}</p>
-                    <p className="font-semibold" style={{ color: machineIsLive(machine.id) ? ((machine.machineHealth ?? 0) >= 80 ? '#22c55e' : (machine.machineHealth ?? 0) >= 60 ? '#facc15' : '#ef4444') : '#6b7280' }}>{fmtDash(machine.id, machine.machineHealth, 0)}%</p>
+                    <p className="font-semibold" style={{ color: !machineIsLive(machine.id) || machine.machineHealth == null ? '#6b7280' : machine.machineHealth >= 80 ? '#22c55e' : machine.machineHealth >= 60 ? '#facc15' : '#ef4444' }}>{fmtDash(machine.id, machine.machineHealth, 0)}%</p>
                   </div>
                   <div className="bg-industrial-bg/50 rounded p-2 text-center">
                     <p className="text-industrial-text-secondary">{(messages.dashboard as any).alarmsShort || (selectedLanguage === 'en' ? 'Alarms' : 'Cảnh báo')}</p>

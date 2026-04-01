@@ -56,14 +56,16 @@ export function ConnectionBadge({ connectionState, lang = 'vi', size = 'sm' }: C
 
 /**
  * Trả về giá trị live hoặc '--' tùy trạng thái kết nối.
- * Chỉ hiển thị số khi kết nối ONLINE và có giá trị.
+ * ONLINE → hiển thị số (live chuẩn)
+ * UNSTABLE → hiển thị số (live có cảnh báo)
+ * STALE / OFFLINE / undefined → '--'
  */
 export function liveMetricValue(
   value: number | undefined | null,
   connectionState: ConnectionStateType | undefined,
   formatter: (v: number) => string,
 ): string {
-  if (connectionState !== 'ONLINE') return '--';
+  if (connectionState !== 'ONLINE' && connectionState !== 'UNSTABLE') return '--';
   if (value === undefined || value === null) return '--';
   return formatter(value);
 }

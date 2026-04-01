@@ -28,7 +28,7 @@ export const machinesApi = {
   },
 
   async getMachineSnapshots(): Promise<Machine[]> {
-    const data = await apiClient.get<Array<Partial<Machine> & Record<string, unknown>>>('/api/v1/machines/snapshots');
+    const data = await apiClient.get<Array<Partial<Machine> & Record<string, unknown>>>('/api/v1/machines/realtime-snapshots');
     return data.map(mapApiMachineToUi);
   },
 

@@ -14,6 +14,11 @@ import { useMemo, useState } from 'react';
 import { buildTimeAxisLabels, getTimeRangeConfig } from '@/lib/time-range-config';
 import { ChartNoData } from '@/components/ChartNoData';
 import { legacyStatusFromDisplayState, resolveMachineDisplayState } from '@/lib/machine-presentation';
+import {
+  buildPowerDonutChart,
+  buildStockLineChart,
+  chartColors,
+} from '@/lib/chart-config';
 
 const toAnalyticsQuery = (range: TimeRange, selectedAreaFilter: string, selectedStatusFilter: string) => {
   const rangeConfig = getTimeRangeConfig(range);
@@ -25,6 +30,50 @@ const toAnalyticsQuery = (range: TimeRange, selectedAreaFilter: string, selected
     area: selectedAreaFilter === 'all' ? undefined : selectedAreaFilter,
     status: selectedStatusFilter === 'all' ? undefined : selectedStatusFilter,
   } as const;
+};
+
+const toSafeNumber = (value: unknown): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+};
+
+const getTrendPointValue = (point: Record<string, unknown>): number | null => {
+  const metrics = point.metrics && typeof point.metrics === 'object' ? (point.metrics as Record<string, unknown>) : null;
+  return (
+    toSafeNumber(point.value) ??
+    toSafeNumber(point.energyKwh) ??
+    toSafeNumber(point.totalEnergyKwh) ??
+    toSafeNumber(point.powerKw) ??
+    toSafeNumber(point.totalPowerKw) ??
+    toSafeNumber(metrics?.totalEnergyKwh) ??
+    toSafeNumber(metrics?.energyKwh) ??
+    toSafeNumber(metrics?.totalPowerKw) ??
+    toSafeNumber(metrics?.powerKw)
+  );
+};
+
+const getTrendPointLabel = (point: Record<string, unknown>): string => {
+  const raw = point.label ?? point.timestamp ?? point.ts ?? point.bucketEnd;
+  return typeof raw === 'string' && raw.trim() !== '' ? raw : '';
+};
+
+const getBreakdownValue = (item: Record<string, unknown>): number => {
+  const metrics = item.metrics && typeof item.metrics === 'object' ? (item.metrics as Record<string, unknown>) : null;
+  return (
+    toSafeNumber(item.value) ??
+    toSafeNumber(item.total) ??
+    toSafeNumber(item.energyKwh) ??
+    toSafeNumber(item.powerKw) ??
+    toSafeNumber(metrics?.totalEnergyKwh) ??
+    toSafeNumber(metrics?.energyKwh) ??
+    toSafeNumber(metrics?.totalPowerKw) ??
+    toSafeNumber(metrics?.powerKw) ??
+    0
+  );
 };
 
 const EnergyPage = () => {
@@ -55,10 +104,14 @@ const EnergyPage = () => {
 
   const displayMachines = filteredMachines.length > 0 ? filteredMachines : machines;
 
-  const totalPowerNow = Number(overview?.currentPowerKw ?? overview?.plantPowerKw ?? displayMachines.reduce((sum, m) => sum + (m.powerKw ?? 0), 0));
-  const peakPower = (displayMachines.length > 0 ? Math.max(...displayMachines.map((m) => m.powerKw ?? 0)) : 0) * 1.2;
-  const totalEnergyToday = Number(overview?.todayEnergyKwh ?? displayMachines.reduce((sum, m) => sum + (m.energyTodayKwh ?? 0), 0));
-  const totalEnergyMonth = Number(overview?.monthEnergyKwh ?? displayMachines.reduce((sum, m) => sum + (m.energyMonthKwh ?? 0), 0));
+  // §5.10: Chỉ tính từ machines có data thật
+  const livePowerMachines = displayMachines.filter(m => m.powerKw != null);
+  const totalPowerNow = Number(overview?.currentPowerKw ?? overview?.plantPowerKw ?? (livePowerMachines.length > 0 ? livePowerMachines.reduce((sum, m) => sum + m.powerKw!, 0) : 0));
+  const peakPower = (livePowerMachines.length > 0 ? Math.max(...livePowerMachines.map((m) => m.powerKw!)) : 0) * 1.2;
+  const liveEnergyMachines = displayMachines.filter(m => m.energyTodayKwh != null);
+  const totalEnergyToday = Number(overview?.todayEnergyKwh ?? (liveEnergyMachines.length > 0 ? liveEnergyMachines.reduce((sum, m) => sum + m.energyTodayKwh!, 0) : 0));
+  const liveMonthEnergyMachines = displayMachines.filter(m => m.energyMonthKwh != null);
+  const totalEnergyMonth = Number(overview?.monthEnergyKwh ?? (liveMonthEnergyMachines.length > 0 ? liveMonthEnergyMachines.reduce((sum, m) => sum + m.energyMonthKwh!, 0) : 0));
   const costPerKwh = Number(trendAnalytics.cost?.costPerKwh ?? overview?.costPerKwh ?? 0.12);
   const costToday = Number(trendAnalytics.cost?.todayCost ?? overview?.todayCost ?? (totalEnergyToday * costPerKwh));
   const costMonth = Number(trendAnalytics.cost?.monthCost ?? overview?.monthCost ?? (totalEnergyMonth * costPerKwh));
@@ -78,41 +131,26 @@ const EnergyPage = () => {
     return (safePower * config.totalMinutes) / 60;
   };
 
-  const pieChartOption = {
-    tooltip: { trigger: 'item' },
-    legend: { 
-       type: 'scroll',
-       bottom: 0,
-       textStyle: { color: '#8fb3d9' },
-       pageTextStyle: { color: '#8fb3d9' },
-       pageIconColor: '#17a2b8'
-    },
-    series: [
-      {
-        name: selectedLanguage === 'en' ? `Power (${distributionUnit})` : `Công suất (${distributionUnit})`,
-        type: 'pie',
-        radius: ['45%', '70%'],
-        center: ['50%', '42%'],
-        avoidLabelOverlap: true,
-        itemStyle: {
-          borderRadius: 4,
-          borderColor: '#0B213F',
-          borderWidth: 2
-        },
-        label: { show: false },
-        data: (distributionAnalytics.byMachine.length > 0
-          ? distributionAnalytics.byMachine.map((m) => ({
-              value: Number(m.value ?? m.total ?? 0),
-              name: String(m.machineCode || m.machineName || m.label || m.key || m.id || 'N/A'),
-            }))
-          : displayMachines.map((m) => ({ value: normalizeEnergyValue(m.powerKw, distributionRange), name: m.code })))
-      }
-    ]
-  };
+  // Power distribution pie - Stock style
+  const pieChartData = distributionAnalytics.byMachine.length > 0
+    ? distributionAnalytics.byMachine.map((m) => ({
+        value: getBreakdownValue(m as Record<string, unknown>),
+        name: String(m.machineCode || m.machineName || m.label || m.key || m.id || 'N/A'),
+      }))
+    : displayMachines.map((m) => ({ 
+        value: normalizeEnergyValue(m.powerKw, distributionRange), 
+        name: m.code 
+      }));
+
+  const pieChartOption = buildPowerDonutChart({
+    data: pieChartData,
+    unit: distributionUnit,
+    locale: selectedLanguage === 'en' ? 'en' : 'vi',
+  });
 
   // Energy trend: API → SSE telemetry fallback
   const energyTrendFromApi = trendAnalytics.trend.length > 0
-    ? trendAnalytics.trend.map((p) => Number(p.value ?? p.energyKwh ?? p.powerKw ?? 0))
+    ? trendAnalytics.trend.map((p) => getTrendPointValue(p as Record<string, unknown>))
     : null;
 
   const energyTrendFromSse = useMemo(() => {
@@ -137,49 +175,29 @@ const EnergyPage = () => {
       buckets[idx].sum += p.powerKw;
       buckets[idx].count += 1;
     }
-    return buckets.map((b) => (b.count > 0 ? Math.round((b.sum / b.count) * 100) / 100 : 0));
+    return buckets.map((b) => (b.count > 0 ? Math.round((b.sum / b.count) * 100) / 100 : null));
   }, [energyTrendFromApi, telemetrySeriesByMachineId, trendConfig.totalMinutes, trendConfig.pointCount]);
 
   const energyTrendData = energyTrendFromApi ?? energyTrendFromSse;
-  const hasEnergyTrendData = energyTrendData != null && energyTrendData.length > 0;
+  const hasEnergyTrendData = energyTrendData != null && energyTrendData.some((value) => value != null);
 
-  const energyTrendOption = {
-    tooltip: { trigger: 'axis', backgroundColor: '#111', borderColor: '#17a2b8', textStyle: { color: '#fff' } },
-    grid: { left: '3%', right: '3%', top: '10%', bottom: '8%', containLabel: true },
-    xAxis: {
-      type: 'category',
-      data: trendAnalytics.trend.length > 0 ? trendAnalytics.trend.map((p) => String(p.label || p.timestamp || '')) : trendAxisLabels,
-      axisLabel: { color: '#8fb3d9' },
-      axisLine: { lineStyle: { color: '#28445f' } },
-    },
-    yAxis: {
-      type: 'value',
-      axisLabel: { color: '#8fb3d9', formatter: `{value} ${trendUnit}` },
-      splitLine: { lineStyle: { color: '#1a2a3a' } },
-    },
+  // Energy trend chart - Stock style
+  const energyTrendAxisLabels = trendAnalytics.trend.length > 0 
+    ? trendAnalytics.trend.map((p) => getTrendPointLabel(p as Record<string, unknown>)) 
+    : trendAxisLabels;
+    
+  const energyTrendOption = buildStockLineChart({
+    xAxisData: energyTrendAxisLabels,
     series: [
       {
-        type: 'line',
-        smooth: true,
-        symbol: 'none',
-        lineStyle: { color: '#17a2b8', width: 2 },
-        areaStyle: {
-          color: {
-            type: 'linear',
-            x: 0,
-            y: 0,
-            x2: 0,
-            y2: 1,
-            colorStops: [
-              { offset: 0, color: 'rgba(23,162,184,0.35)' },
-              { offset: 1, color: 'rgba(23,162,184,0.05)' },
-            ],
-          },
-        },
-        data: energyTrendData,
+        name: selectedLanguage === 'en' ? 'Energy' : 'Năng lượng',
+        data: energyTrendData ?? [],
+        color: chartColors.primary,
+        showArea: true,
       },
     ],
-  };
+    yAxisUnit: trendUnit,
+  });
 
   const areaConsumption = trendAnalytics.byArea.length > 0
     ? trendAnalytics.byArea.reduce((acc: Record<string, number>, item) => {
@@ -263,8 +281,8 @@ const EnergyPage = () => {
             </h3>
             <TimeRangeSelector value={distributionRange} onChange={setDistributionRange} showLabel={false} />
           </div>
-          <div className="flex-1 min-h-[280px] mt-2 relative">
-            <ReactECharts option={pieChartOption} style={{ height: '100%', width: '100%', position: 'absolute', top: 0, left: 0 }} />
+          <div className="flex-1 min-h-[280px] mt-2 min-w-0 overflow-hidden">
+            <ReactECharts option={pieChartOption} style={{ height: '100%', width: '100%' }} />
           </div>
         </div>
       </div>
@@ -275,7 +293,7 @@ const EnergyPage = () => {
             <h3 className="panel-title">{messages.energy.powerTrendChart}</h3>
             <TimeRangeSelector value={trendRange} onChange={setTrendRange} showLabel={false} />
           </div>
-          <div className="h-64">
+          <div className="h-64 min-w-0 overflow-hidden">
             {hasEnergyTrendData ? (
               <ReactECharts option={energyTrendOption} style={{ height: '100%', width: '100%' }} />
             ) : (

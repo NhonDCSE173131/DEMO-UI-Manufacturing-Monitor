@@ -103,6 +103,12 @@ interface RealtimeState {
 
   /** Helper: check xem có nên hiển thị live metrics không */
   shouldShowLiveMetrics: (machineId: string, freshnessSec?: number) => boolean;
+
+  /** Selector: lấy live snapshot chuẩn hóa cho 1 máy */
+  selectMachineLiveSnapshot: (machineId: string) => Partial<Machine> | undefined;
+
+  /** Selector: lấy series window cho 1 máy */
+  selectMachineSeries: (machineId: string, fromMs: number) => TelemetryPoint[];
 }
 
 export const useRealtimeStore = create<RealtimeState>()((set, get) => ({
@@ -183,9 +189,10 @@ export const useRealtimeStore = create<RealtimeState>()((set, get) => ({
     // ONLINE = live chuẩn, UNSTABLE = vẫn live nhưng cần cảnh báo ở UI.
     const connState = state.connectionStateByMachineId[machineId];
     if (!connState || (connState !== 'ONLINE' && connState !== 'UNSTABLE')) return false;
-    // Dữ liệu phải còn fresh
+    // Dữ liệu phải còn fresh — UNSTABLE cho phép threshold cao hơn (45s)
     const freshness = state.dataFreshnessByMachineId[machineId];
-    if (freshness !== undefined && freshness > freshnessSec) return false;
+    const effectiveThreshold = connState === 'UNSTABLE' ? Math.max(freshnessSec, 45) : freshnessSec;
+    if (freshness !== undefined && freshness > effectiveThreshold) return false;
     // Chấp nhận snapshot hoặc đã có ít nhất 1 telemetry point.
     const snapshot = state.snapshotsByMachineId[machineId];
     const series = state.telemetrySeriesByMachineId[machineId] || [];
@@ -200,9 +207,10 @@ export const useRealtimeStore = create<RealtimeState>()((set, get) => ({
     // ONLINE/UNSTABLE đều có thể hiển thị live.
     const connState = state.connectionStateByMachineId[machineId];
     if (!connState || (connState !== 'ONLINE' && connState !== 'UNSTABLE')) return false;
-    // Nếu dữ liệu quá cũ thì không hiện live
+    // Nếu dữ liệu quá cũ thì không hiện live — UNSTABLE cho phép 45s
     const freshness = state.dataFreshnessByMachineId[machineId];
-    if (freshness !== undefined && freshness > freshnessSec) return false;
+    const effectiveThreshold = connState === 'UNSTABLE' ? Math.max(freshnessSec, 45) : freshnessSec;
+    if (freshness !== undefined && freshness > effectiveThreshold) return false;
     // Chấp nhận snapshot hoặc đã có telemetry points.
     const snapshot = state.snapshotsByMachineId[machineId];
     const series = state.telemetrySeriesByMachineId[machineId] || [];
@@ -233,5 +241,15 @@ export const useRealtimeStore = create<RealtimeState>()((set, get) => ({
         [machineId]: freshnessSec,
       },
     })),
+
+  selectMachineLiveSnapshot: (machineId) => {
+    const state = get();
+    return state.snapshotsByMachineId[machineId];
+  },
+
+  selectMachineSeries: (machineId, fromMs) => {
+    const series = get().telemetrySeriesByMachineId[machineId] || [];
+    return series.filter((p) => new Date(p.timestamp).getTime() >= fromMs);
+  },
 }));
 

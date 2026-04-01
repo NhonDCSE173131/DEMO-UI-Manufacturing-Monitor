@@ -14,30 +14,41 @@ import {
 
 const DEFAULT_POLL_MS = 90_000; // SSE là nguồn live chính, REST chỉ refresh nền
 
+/**
+ * Kiểm tra live data available (pure function, không phụ thuộc store).
+ * - ONLINE + freshness ≤ 30 → live
+ * - UNSTABLE + freshness ≤ 45 → live (nhưng UI cảnh báo)
+ * - STALE / OFFLINE → không live
+ */
+const computeLiveDataAvailable = (
+  connState: Machine['connectionState'] | undefined,
+  freshness: number | undefined,
+  unstableFlag?: boolean,
+): boolean => {
+  if (!connState) return false;
+  if (connState !== 'ONLINE' && connState !== 'UNSTABLE') return false;
+  if (unstableFlag || connState === 'UNSTABLE') return freshness === undefined || freshness <= 45;
+  return freshness === undefined || freshness <= 30;
+};
+
 export const useMachinesData = (pollIntervalMs: number = DEFAULT_POLL_MS) => {
   const { snapshotsByMachineId, connectionStateByMachineId, lastSeenByMachineId, dataFreshnessByMachineId } = useRealtimeStore();
-  const [machines, setMachines] = useState<Machine[]>([]);
+
+  // REST baseline: dữ liệu gốc từ API, KHÔNG lẫn realtime
+  const [restMachines, setRestMachines] = useState<Machine[]>([]);
   const [events, setEvents] = useState<MachineEvent[]>([]);
   const [imageOverrides, setImageOverrides] = useState<Record<string, MachineImageOverride>>(loadMachineImageOverrides());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const initialLoadDone = useRef(false);
 
-  const computeLiveDataAvailable = (machineId: string, connState?: Machine['connectionState'], fallbackFreshness?: number, unstableFlag?: boolean) => {
-    const freshness = dataFreshnessByMachineId[machineId] ?? fallbackFreshness;
-    const unstable = unstableFlag === true;
-    if (!connState) return false;
-    if (connState !== 'ONLINE' && connState !== 'UNSTABLE') return false;
-    if (unstable) return freshness === undefined || freshness <= 45;
-    return freshness === undefined || freshness <= 30;
-  };
-
   const syncImageOverrides = useCallback(() => {
     const overrides = loadMachineImageOverrides();
     setImageOverrides(overrides);
-    setMachines((prev) => applyMachineImageOverrides(prev, overrides));
+    setRestMachines((prev) => applyMachineImageOverrides(prev, overrides));
   }, []);
 
+  // load() chỉ fetch REST, KHÔNG đọc realtime store → deps = []
   const load = useCallback(async () => {
     if (!initialLoadDone.current) setLoading(true);
     setError(null);
@@ -50,39 +61,24 @@ export const useMachinesData = (pollIntervalMs: number = DEFAULT_POLL_MS) => {
       const mergedMachines = apiMachines.map((machine) => ({
         ...machine,
         ...(snapshotsById.get(machine.id) || {}),
-      })).map((machine) => {
-        const rtPatch = snapshotsByMachineId[machine.id];
-        const connState = connectionStateByMachineId[machine.id] ?? machine.connectionState;
-        const lastSeenAt = lastSeenByMachineId[machine.id] ?? machine.lastSeenAt;
-        const freshness = dataFreshnessByMachineId[machine.id] ?? machine.dataFreshnessSec;
-        const connectionUnstable = (rtPatch?.connectionUnstable as boolean | undefined) ?? machine.connectionUnstable;
-        return {
-          ...machine,
-          ...(rtPatch || {}),
-          connectionState: connState,
-          lastSeenAt,
-          dataFreshnessSec: freshness,
-          connectionUnstable,
-          liveDataAvailable: computeLiveDataAvailable(machine.id, connState, freshness, connectionUnstable),
-        };
-      });
+      }));
       const overrides = loadMachineImageOverrides();
       setImageOverrides(overrides);
-      setMachines(applyMachineImageOverrides(mergedMachines, overrides));
+      setRestMachines(applyMachineImageOverrides(mergedMachines, overrides));
       if (!initialLoadDone.current) setEvents([]);
       initialLoadDone.current = true;
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Không tải được dữ liệu máy');
       if (!initialLoadDone.current) {
-        setMachines([]);
+        setRestMachines([]);
         setEvents([]);
       }
     } finally {
       setLoading(false);
     }
-  }, [connectionStateByMachineId, dataFreshnessByMachineId, lastSeenByMachineId, snapshotsByMachineId]);
+  }, []);
 
-  // Lần đầu load
+  // Lần đầu load — chỉ chạy 1 lần (load giờ stable identity)
   useEffect(() => {
     load();
   }, [load]);
@@ -94,39 +90,29 @@ export const useMachinesData = (pollIntervalMs: number = DEFAULT_POLL_MS) => {
     return () => clearInterval(timer);
   }, [load, pollIntervalMs]);
 
-  // Apply realtime patches + connection state on top of machines
-  useEffect(() => {
-    const hasSnapshots = Object.keys(snapshotsByMachineId).length > 0;
-    const hasConnStates = Object.keys(connectionStateByMachineId).length > 0;
-    if (!hasSnapshots && !hasConnStates) return;
+  // ═══ machines = REST baseline + realtime overlay (useMemo) ═══
+  // Mỗi khi REST hoặc realtime store thay đổi, machines tự tính lại.
+  // Realtime luôn ưu tiên hơn REST vì nó mới hơn.
+  const machines = useMemo(() => {
+    return restMachines.map((machine) => {
+      const rtPatch = snapshotsByMachineId[machine.id];
+      const connState = connectionStateByMachineId[machine.id] ?? machine.connectionState;
+      const lastSeenAt = lastSeenByMachineId[machine.id] ?? machine.lastSeenAt;
+      const freshness = dataFreshnessByMachineId[machine.id] ?? machine.dataFreshnessSec;
+      const connectionUnstable = (rtPatch?.connectionUnstable as boolean | undefined) ?? machine.connectionUnstable;
+      return {
+        ...machine,
+        ...(rtPatch || {}),
+        connectionState: connState,
+        lastSeenAt,
+        dataFreshnessSec: freshness,
+        connectionUnstable,
+        liveDataAvailable: computeLiveDataAvailable(connState, freshness, connectionUnstable),
+      };
+    });
+  }, [restMachines, snapshotsByMachineId, connectionStateByMachineId, lastSeenByMachineId, dataFreshnessByMachineId]);
 
-    setMachines((prev) =>
-      prev.map((machine) => {
-        const rtPatch = snapshotsByMachineId[machine.id];
-        const connState = connectionStateByMachineId[machine.id] as Machine['connectionState'] | undefined;
-        const lastSeen = lastSeenByMachineId[machine.id];
-        const freshness = dataFreshnessByMachineId[machine.id];
-
-        const updates: Partial<Machine> = {};
-        if (rtPatch) Object.assign(updates, rtPatch);
-        if (connState) {
-          updates.connectionState = connState;
-          updates.liveDataAvailable = computeLiveDataAvailable(
-            machine.id,
-            connState,
-            freshness,
-            (rtPatch?.connectionUnstable as boolean | undefined) ?? machine.connectionUnstable,
-          );
-        }
-        if (lastSeen) updates.lastSeenAt = lastSeen;
-        if (freshness !== undefined) updates.dataFreshnessSec = freshness;
-
-        if (Object.keys(updates).length === 0) return machine;
-        return { ...machine, ...updates };
-      }),
-    );
-  }, [snapshotsByMachineId, connectionStateByMachineId, lastSeenByMachineId, dataFreshnessByMachineId]);
-
+  // Image override sync
   useEffect(() => {
     const handleChanged = () => syncImageOverrides();
     const handleStorage = (event: StorageEvent) => {
@@ -145,7 +131,7 @@ export const useMachinesData = (pollIntervalMs: number = DEFAULT_POLL_MS) => {
   }, [syncImageOverrides]);
 
   const applyMachinePatch = useCallback((machineId: string, updates: Partial<Machine>) => {
-    setMachines((prev) => prev.map((machine) => (machine.id === machineId ? { ...machine, ...updates } : machine)));
+    setRestMachines((prev) => prev.map((machine) => (machine.id === machineId ? { ...machine, ...updates } : machine)));
   }, []);
 
   const appendEvent = useCallback((event: MachineEvent) => {
@@ -159,7 +145,7 @@ export const useMachinesData = (pollIntervalMs: number = DEFAULT_POLL_MS) => {
     async (machineId: string, image: string, fileName?: string) => {
       const override = saveMachineImageOverride(machineId, image, fileName);
       setImageOverrides((prev) => ({ ...prev, [machineId]: override }));
-      setMachines((prev) => prev.map((machine) => (machine.id === machineId ? { ...machine, image } : machine)));
+      setRestMachines((prev) => prev.map((machine) => (machine.id === machineId ? { ...machine, image } : machine)));
       return override;
     },
     [],
@@ -194,4 +180,3 @@ export const useMachinesData = (pollIntervalMs: number = DEFAULT_POLL_MS) => {
     [events, machines, imageOverrides, loading, error, load, applyMachinePatch, appendEvent, saveMachineImage, resetMachineImage],
   );
 };
-

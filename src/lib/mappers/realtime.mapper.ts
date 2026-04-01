@@ -1,5 +1,18 @@
 import type { Machine, ConnectionStateType, DisplayStateType, OperationalStateType } from '@/types';
 
+/**
+ * Mapper cho SSE snapshot.updated payload → UI Machine model
+ * Theo BE-API-DOCUMENTATION, payload có các field:
+ * - machineId, machineCode, machineName, ts
+ * - connectionState, connectionUnstable, lastSeenAt, dataFreshnessSec, liveDataAvailable
+ * - operationalState, displayState, operationMode, programName, cycleRunning
+ * - powerKw, temperatureC, vibrationMmS, runtimeHours, cycleTimeSec, idealCycleTimeSec
+ * - outputCount, goodCount, rejectCount
+ * - spindleSpeedRpm, feedRateMmMin, spindleLoadPct, servoLoadPct
+ * - oee, availability, performance, quality
+ * - machineHealth, anomalyScore, maintenanceDueDays, maintenanceRisk
+ */
+
 const toNumber = (value: unknown): number | undefined => {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   if (typeof value === 'string' && value.trim() !== '') {
@@ -29,7 +42,7 @@ const toMode = (value: unknown): Machine['mode'] | undefined => {
   if (!raw) return undefined;
   if (raw === 'AUTO' || raw === 'AUTOMATIC') return 'AUTO';
   if (raw === 'MANUAL') return 'MANUAL';
-  if (raw === 'SETUP') return 'SETUP';
+  if (raw === 'SETUP' || raw === 'MDI' || raw === 'JOG' || raw === 'REFERENCE') return 'SETUP';
   return undefined;
 };
 
@@ -63,72 +76,108 @@ const toDisplayState = (value: unknown): DisplayStateType | undefined => {
   return undefined;
 };
 
+/**
+ * Map snapshot.updated payload → Partial<Machine>
+ * Dùng cho cả SSE event và REST /machines/realtime-snapshots
+ */
 export const mapRealtimeTelemetryPatch = (payload: Record<string, unknown>): Partial<Machine> => {
-  const status = toStatus(payload.status ?? payload.machineStatus ?? payload.operationState ?? payload.operationalState);
-  const mode = toMode(payload.mode ?? payload.operationMode);
+  // Status & Mode (từ operationalState theo BE)
+  const status = toStatus(payload.operationalState ?? payload.displayState ?? payload.status);
+  const mode = toMode(payload.operationMode ?? payload.mode);
+
+  // Connection state fields
   const connectionUnstable = payload.connectionUnstable === true;
-  const connectionState = toConnectionState(payload.connectionState ?? payload.connection_status ?? payload.connection ?? payload.to ?? payload.state);
-  const operationalState = toOperationalState(payload.operationalState ?? payload.operational_state);
-  const displayState = toDisplayState(payload.displayState ?? payload.display_state) || (connectionUnstable ? 'UNSTABLE' : connectionState) || operationalState;
+  const connectionState = toConnectionState(payload.connectionState);
+  const operationalState = toOperationalState(payload.operationalState);
+  const displayState = toDisplayState(payload.displayState) || operationalState || (connectionUnstable ? 'UNSTABLE' : connectionState);
 
-  const rawTelemetry = status || mode || operationalState
-    ? {
-        operationalState,
-        mode,
-        powerKw: toNumber(payload.powerKw ?? payload.currentPowerKw),
-        temperatureC: toNumber(payload.temperatureC),
-        vibrationMmS: toNumber(payload.vibrationMmS ?? payload.vibrationPct),
-        vibrationPct: toNumber(payload.vibrationPct ?? payload.vibrationMmS),
-        spindleRpm: toNumber(payload.spindleRpm ?? payload.spindleSpeedRpm),
-        feedRateMmMin: toNumber(payload.feedRateMmMin),
-        spindleLoadPct: toNumber(payload.spindleLoadPct),
-        servoLoadPct: toNumber(payload.servoLoadPct),
-        cycleTimeSec: toNumber(payload.cycleTimeSec),
-        programName: toString(payload.programName ?? payload.currentProgram),
-      }
-    : undefined;
+  // Telemetry raw (for rawTelemetry field)
+  const rawTelemetry = {
+    operationalState,
+    mode,
+    powerKw: toNumber(payload.powerKw),
+    temperatureC: toNumber(payload.temperatureC),
+    vibrationMmS: toNumber(payload.vibrationMmS),
+    vibrationPct: toNumber(payload.vibrationMmS), // BE dùng vibrationMmS
+    spindleRpm: toNumber(payload.spindleSpeedRpm),
+    feedRateMmMin: toNumber(payload.feedRateMmMin),
+    spindleLoadPct: toNumber(payload.spindleLoadPct),
+    servoLoadPct: toNumber(payload.servoLoadPct),
+    cycleTimeSec: toNumber(payload.cycleTimeSec),
+    programName: toString(payload.programName),
+  };
 
-  const lastSeenAt = toString(payload.lastSeenAt ?? payload.lastSeen ?? payload.last_seen_at);
-  const dataFreshnessSec = toNumber(payload.dataFreshnessSec ?? payload.data_freshness_sec ?? payload.freshness ?? payload.freshnessSec);
+  // Connection metadata
+  const lastSeenAt = toString(payload.lastSeenAt);
+  const dataFreshnessSec = toNumber(payload.dataFreshnessSec);
   const effectiveConnectionState = connectionUnstable ? 'UNSTABLE' : connectionState;
-  const liveDataAvailable =
-    (effectiveConnectionState === 'ONLINE' || effectiveConnectionState === 'UNSTABLE')
-    && (dataFreshnessSec === undefined || dataFreshnessSec <= 30);
+  const liveDataAvailable = payload.liveDataAvailable === true ||
+    ((effectiveConnectionState === 'ONLINE' || effectiveConnectionState === 'UNSTABLE')
+      && (dataFreshnessSec === undefined || dataFreshnessSec <= 5));
 
   return {
+    // Status & mode
     status,
     mode,
-    powerKw: toNumber(payload.powerKw ?? payload.currentPowerKw),
-    oee: toNumber(payload.oee),
-    availability: toNumber(payload.availability),
-    performance: toNumber(payload.performance),
-    quality: toNumber(payload.quality),
-    machineHealth: toNumber(payload.machineHealth ?? payload.healthScore),
-    activeAlarms: toNumber(payload.activeAlarms ?? payload.alarmCount ?? payload.activeAlarmCount),
-    temperatureC: toNumber(payload.temperatureC),
-    vibrationPct: toNumber(payload.vibrationPct ?? payload.vibrationMmS),
-    spindleSpeedRpm: toNumber(payload.spindleRpm ?? payload.spindleSpeedRpm),
-    feedRateMmMin: toNumber(payload.feedRateMmMin),
-    servoLoadPct: toNumber(payload.servoLoadPct),
-    currentProgram: toString(payload.programName ?? payload.currentProgram),
-    ngCount: toNumber(payload.rejectCount ?? payload.ngCount),
-    partCount: toNumber(payload.outputCount ?? payload.partCount),
-    goodCount: toNumber(payload.goodCount),
-    rawTelemetry,
-    // Connection / system state fields
+
+    // Connection state
     connectionState: effectiveConnectionState,
     connectionUnstable,
     operationalState,
     displayState,
-    connectionReason: toString(payload.connectionReason ?? payload.connection_reason) ?? null,
-    connectionScope: toString(payload.connectionScope ?? payload.connection_scope) as Machine['connectionScope'] ?? null,
     lastSeenAt,
     dataFreshnessSec,
     liveDataAvailable,
+    connectionReason: toString(payload.connectionReason) ?? null,
+    connectionScope: toString(payload.connectionScope) as Machine['connectionScope'] ?? null,
+
+    // OEE metrics
+    oee: toNumber(payload.oee),
+    availability: toNumber(payload.availability),
+    performance: toNumber(payload.performance),
+    quality: toNumber(payload.quality),
+
+    // Telemetry metrics
+    powerKw: toNumber(payload.powerKw),
+    temperatureC: toNumber(payload.temperatureC),
+    vibrationPct: toNumber(payload.vibrationMmS), // BE gửi vibrationMmS
+    spindleSpeedRpm: toNumber(payload.spindleSpeedRpm),
+    feedRateMmMin: toNumber(payload.feedRateMmMin),
+    spindleLoadPct: toNumber(payload.spindleLoadPct),
+    servoLoadPct: toNumber(payload.servoLoadPct),
+    cycleTimeSec: toNumber(payload.cycleTimeSec),
+    idealCycleTimeSec: toNumber(payload.idealCycleTimeSec),
+
+    // Machining parameters
+    cuttingSpeedMMin: toNumber(payload.cuttingSpeedMMin),
+    depthOfCutMm: toNumber(payload.depthOfCutMm),
+    feedPerToothMm: toNumber(payload.feedPerToothMm),
+    widthOfCutMm: toNumber(payload.widthOfCutMm),
+    materialRemovalRateCm3Min: toNumber(payload.materialRemovalRateCm3Min),
+    weldingCurrentA: toNumber(payload.weldingCurrentA),
+
+    // Production counters - BE dùng outputCount, goodCount, rejectCount
+    partCount: toNumber(payload.outputCount),
+    goodCount: toNumber(payload.goodCount),
+    ngCount: toNumber(payload.rejectCount),
+
+    // Program
+    currentProgram: toString(payload.programName) || 'N/A',
+
+    // Health & Maintenance
+    machineHealth: toNumber(payload.machineHealth),
+    anomalyScore: toNumber(payload.anomalyScore),
+    maintenanceDueDays: toNumber(payload.maintenanceDueDays),
+    toolLifeRemainingPct: toNumber(payload.remainingToolLifePct),
+
+    // Energy
+    energyTodayKwh: toNumber(payload.energyKwhDay),
+
+    // Raw telemetry object
+    rawTelemetry,
   };
 };
 
 export const pruneUndefinedPatch = <T extends Record<string, unknown>>(patch: T): Partial<T> => {
   return Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined)) as Partial<T>;
 };
-

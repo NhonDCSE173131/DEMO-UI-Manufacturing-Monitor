@@ -15,6 +15,13 @@ import { useMemo, useState } from 'react';
 import { buildTimeAxisLabels, getDowntimeUnitLabel, getTimeRangeConfig, normalizeDowntimeMinutes } from '@/lib/time-range-config';
 import { ChartNoData } from '@/components/ChartNoData';
 import { legacyStatusFromDisplayState, resolveMachineDisplayState } from '@/lib/machine-presentation';
+import {
+  buildStockLineChart,
+  chartColors,
+  stockTooltip,
+  stockGrid,
+  stockBarSeries,
+} from '@/lib/chart-config';
 
 const toOeeQuery = (range: TimeRange, selectedShift: string, selectedAreaFilter: string, selectedStatusFilter: string) => {
   const rangeConfig = getTimeRangeConfig(range);
@@ -27,6 +34,32 @@ const toOeeQuery = (range: TimeRange, selectedShift: string, selectedAreaFilter:
     area: selectedAreaFilter === 'all' ? undefined : selectedAreaFilter,
     status: selectedStatusFilter === 'all' ? undefined : selectedStatusFilter,
   } as const;
+};
+
+const toSafeNumber = (value: unknown): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+};
+
+const getOeeTrendValue = (point: Record<string, unknown>): number | null => {
+  const metrics = point.metrics && typeof point.metrics === 'object' ? (point.metrics as Record<string, unknown>) : null;
+  const value =
+    toSafeNumber(point.oee) ??
+    toSafeNumber(point.value) ??
+    toSafeNumber(point.avgOee) ??
+    toSafeNumber(metrics?.oee) ??
+    toSafeNumber(metrics?.avgOee);
+  if (value == null) return null;
+  return Math.max(0, Math.min(100, value));
+};
+
+const getTrendPointLabel = (point: Record<string, unknown>): string => {
+  const raw = point.label ?? point.timestamp ?? point.ts ?? point.bucketEnd;
+  return typeof raw === 'string' && raw.trim() !== '' ? raw : '';
 };
 
 const OEEPage = () => {
@@ -69,23 +102,26 @@ const OEEPage = () => {
   const trendAxisLabels = buildTimeAxisLabels(oeeTrendRange, localeKey);
   const paretoUnitLabel = getDowntimeUnitLabel(paretoRange, localeKey);
 
-  const safeMetric = (value: number | undefined) => value ?? 0;
-
-  const avgOEE = Math.round(oeeAnalytics.overview?.avgOee ?? displayMachines.reduce((sum, m) => sum + safeMetric(m.computedMetrics?.oee ?? m.oee), 0) / Math.max(1, displayMachines.length));
-  const avgAvailability = Math.round(oeeAnalytics.overview?.avgAvailability ?? displayMachines.reduce((sum, m) => sum + safeMetric(m.computedMetrics?.availability ?? m.availability), 0) / Math.max(1, displayMachines.length));
-  const avgPerformance = Math.round(oeeAnalytics.overview?.avgPerformance ?? displayMachines.reduce((sum, m) => sum + safeMetric(m.computedMetrics?.performance ?? m.performance), 0) / Math.max(1, displayMachines.length));
-  const avgQuality = Math.round(oeeAnalytics.overview?.avgQuality ?? displayMachines.reduce((sum, m) => sum + safeMetric(m.computedMetrics?.quality ?? m.quality), 0) / Math.max(1, displayMachines.length));
+  // §5.10: Không dùng ?? 0 cho field chưa có — chỉ tính từ machines có data thật
+  const oeeValidMachines = displayMachines.filter(m => (m.computedMetrics?.oee ?? m.oee) != null);
+  const avgOEE = Math.round(oeeAnalytics.overview?.avgOee ?? (oeeValidMachines.length > 0 ? oeeValidMachines.reduce((sum, m) => sum + (m.computedMetrics?.oee ?? m.oee ?? 0), 0) / oeeValidMachines.length : 0));
+  const availValidMachines = displayMachines.filter(m => (m.computedMetrics?.availability ?? m.availability) != null);
+  const avgAvailability = Math.round(oeeAnalytics.overview?.avgAvailability ?? (availValidMachines.length > 0 ? availValidMachines.reduce((sum, m) => sum + (m.computedMetrics?.availability ?? m.availability ?? 0), 0) / availValidMachines.length : 0));
+  const perfValidMachines = displayMachines.filter(m => (m.computedMetrics?.performance ?? m.performance) != null);
+  const avgPerformance = Math.round(oeeAnalytics.overview?.avgPerformance ?? (perfValidMachines.length > 0 ? perfValidMachines.reduce((sum, m) => sum + (m.computedMetrics?.performance ?? m.performance ?? 0), 0) / perfValidMachines.length : 0));
+  const qualValidMachines = displayMachines.filter(m => (m.computedMetrics?.quality ?? m.quality) != null);
+  const avgQuality = Math.round(oeeAnalytics.overview?.avgQuality ?? (qualValidMachines.length > 0 ? qualValidMachines.reduce((sum, m) => sum + (m.computedMetrics?.quality ?? m.quality ?? 0), 0) / qualValidMachines.length : 0));
 
   const oeeTarget = 85;
   const oeeDelta = avgOEE - oeeTarget;
-  const totalOutput = Math.round(oeeAnalytics.overview?.totalOutput ?? displayMachines.reduce((sum, machine) => sum + safeMetric(machine.partCount), 0));
-  const goodOutput = Math.round(oeeAnalytics.overview?.goodOutput ?? displayMachines.reduce((sum, machine) => sum + safeMetric(machine.goodCount), 0));
-  const rejectOutput = Math.round(oeeAnalytics.overview?.rejectOutput ?? displayMachines.reduce((sum, machine) => sum + safeMetric(machine.ngCount), 0));
+  const totalOutput = Math.round(oeeAnalytics.overview?.totalOutput ?? (() => { const ms = displayMachines.filter(m => m.partCount != null); return ms.length > 0 ? ms.reduce((sum, m) => sum + m.partCount!, 0) : 0; })());
+  const goodOutput = Math.round(oeeAnalytics.overview?.goodOutput ?? (() => { const ms = displayMachines.filter(m => m.goodCount != null); return ms.length > 0 ? ms.reduce((sum, m) => sum + m.goodCount!, 0) : 0; })());
+  const rejectOutput = Math.round(oeeAnalytics.overview?.rejectOutput ?? (() => { const ms = displayMachines.filter(m => m.ngCount != null); return ms.length > 0 ? ms.reduce((sum, m) => sum + m.ngCount!, 0) : 0; })());
   const targetOutput = Math.round(oeeAnalytics.overview?.targetOutput ?? (totalOutput * 1.08));
 
   const oeeTrendFromApi =
     oeeAnalytics.trend.length > 0
-      ? oeeAnalytics.trend.map((p) => Math.max(0, Math.min(100, Number(p.oee ?? p.value ?? 0))))
+      ? oeeAnalytics.trend.map((p) => getOeeTrendValue(p as Record<string, unknown>))
       : null;
 
   // Fallback: build OEE trend from SSE telemetry time-series
@@ -111,61 +147,36 @@ const OEEPage = () => {
       buckets[idx].sum += p.oee;
       buckets[idx].count += 1;
     }
-    return buckets.map((b) => (b.count > 0 ? Math.round(b.sum / b.count) : 0));
+    return buckets.map((b) => (b.count > 0 ? Math.round(b.sum / b.count) : null));
   }, [oeeTrendFromApi, telemetrySeriesByMachineId, trendConfig.totalMinutes, trendConfig.pointCount]);
 
   const oeeTrendData = oeeTrendFromApi ?? oeeTrendFromSse;
-  const hasOeeTrendData = oeeTrendData != null && oeeTrendData.length > 0;
+  const hasOeeTrendData = oeeTrendData != null && oeeTrendData.some((value) => value != null);
 
-  const oeeTrendOption = {
-    tooltip: { trigger: 'axis', backgroundColor: '#111', borderColor: '#17a2b8', textStyle: { color: '#fff' } },
-    grid: { left: '3%', right: '3%', top: '10%', bottom: '8%', containLabel: true },
-    xAxis: {
-      type: 'category',
-      data: oeeAnalytics.trend.length > 0 ? oeeAnalytics.trend.map((p) => String(p.label || p.timestamp || '')) : trendAxisLabels,
-      axisLabel: { color: '#8fb3d9' },
-      axisLine: { lineStyle: { color: '#28445f' } },
-    },
-    yAxis: {
-      type: 'value',
-      min: 40,
-      max: 100,
-      axisLabel: { color: '#8fb3d9', formatter: '{value}%' },
-      splitLine: { lineStyle: { color: '#1a2a3a' } },
-    },
+  // OEE Trend chart - Stock style
+  const oeeTrendAxisLabels = oeeAnalytics.trend.length > 0 
+    ? oeeAnalytics.trend.map((p) => getTrendPointLabel(p as Record<string, unknown>)) 
+    : trendAxisLabels;
+
+  const oeeTrendOption = buildStockLineChart({
+    xAxisData: oeeTrendAxisLabels,
     series: [
       {
         name: 'OEE',
-        type: 'line',
-        data: oeeTrendData,
-        smooth: true,
-        symbol: 'circle',
-        symbolSize: 6,
-        lineStyle: { color: '#17a2b8', width: 2 },
-        itemStyle: { color: '#17a2b8' },
-        areaStyle: {
-          color: {
-            type: 'linear',
-            x: 0,
-            y: 0,
-            x2: 0,
-            y2: 1,
-            colorStops: [
-              { offset: 0, color: 'rgba(23,162,184,0.35)' },
-              { offset: 1, color: 'rgba(23,162,184,0.05)' },
-            ],
-          },
-        },
-      },
-      {
-        name: 'Target',
-        type: 'line',
-        data: Array.from({ length: trendConfig.pointCount }).map(() => oeeTarget),
-        symbol: 'none',
-        lineStyle: { type: 'dashed', color: '#facc15' },
+        data: oeeTrendData ?? [],
+        color: chartColors.primary,
+        showArea: true,
       },
     ],
-  };
+    yAxisUnit: '%',
+    yAxisMin: 40,
+    yAxisMax: 100,
+    markLine: {
+      value: oeeTarget,
+      label: `Target ${oeeTarget}%`,
+      color: chartColors.warning,
+    },
+  });
 
   const scopedParetoEvents = (oeeAnalytics.losses.length > 0 ? [] : events).filter((event) => {
     const eventTime = new Date(event.timestamp).getTime();
@@ -191,28 +202,30 @@ const OEEPage = () => {
     .sort((a, b) => b[1] - a[1])
     .slice(0, 6);
 
+  // Pareto chart - Stock style
   const paretoOption = {
-    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, backgroundColor: '#111', borderColor: '#ef4444', textStyle: { color: '#fff' } },
-    grid: { left: '3%', right: '3%', top: '10%', bottom: '8%', containLabel: true },
+    animation: true,
+    animationDuration: 300,
+    tooltip: stockTooltip(chartColors.danger),
+    grid: stockGrid({ bottom: '15%' }),
     xAxis: {
-      type: 'category',
+      type: 'category' as const,
       data: paretoData.map((item) => item[0]),
-      axisLabel: { color: '#8fb3d9', rotate: 18 },
-      axisLine: { lineStyle: { color: '#28445f' } },
+      axisLine: { lineStyle: { color: chartColors.axisLine } },
+      axisTick: { show: false },
+      axisLabel: { color: chartColors.axisLabel, fontSize: 10, rotate: 20 },
     },
     yAxis: {
-      type: 'value',
-      axisLabel: { color: '#8fb3d9', formatter: `{value} ${paretoUnitLabel}` },
-      splitLine: { lineStyle: { color: '#1a2a3a' } },
+      type: 'value' as const,
+      axisLabel: { color: chartColors.axisLabel, formatter: `{value} ${paretoUnitLabel}` },
+      splitLine: { show: true, lineStyle: { color: chartColors.gridLine, type: 'solid' as const } },
     },
-    series: [
-      {
-        type: 'bar',
-        data: paretoData.map((item) => item[1]),
-        itemStyle: { color: '#ef4444', borderRadius: [4, 4, 0, 0] },
-        barWidth: '55%',
-      },
-    ],
+    series: [stockBarSeries(
+      selectedLanguage === 'vi' ? 'Thời gian dừng' : 'Downtime',
+      paretoData.map((item) => item[1]),
+      chartColors.danger,
+      { gradient: true }
+    )],
   };
 
   const downtimeTimeline = events
@@ -362,7 +375,7 @@ const OEEPage = () => {
             <h3 className="panel-title">{selectedLanguage === 'en' ? 'OEE Trend by Time' : 'Xu hướng OEE theo thời gian'}</h3>
             <TimeRangeSelector value={oeeTrendRange} onChange={setOeeTrendRange} showLabel={false} />
           </div>
-          <div className="h-64">
+          <div className="h-64 min-w-0 overflow-hidden">
             {hasOeeTrendData ? (
               <ReactECharts option={oeeTrendOption} style={{ height: '100%', width: '100%' }} />
             ) : (
@@ -429,7 +442,7 @@ const OEEPage = () => {
             </h3>
             <TimeRangeSelector value={paretoRange} onChange={setParetoRange} showLabel={false} />
           </div>
-          <div className="h-72">
+          <div className="h-72 min-w-0 overflow-hidden">
             <ReactECharts option={paretoOption} style={{ height: '100%', width: '100%' }} />
           </div>
         </div>
@@ -443,7 +456,7 @@ const OEEPage = () => {
         </h3>
         <div className="space-y-5">
           {displayMachines
-            .sort((a, b) => safeMetric(b.oee) - safeMetric(a.oee))
+            .sort((a, b) => (b.oee ?? -1) - (a.oee ?? -1))
             .map((machine) => (
               <div key={machine.id} className="bg-industrial-darker/50 p-3 rounded-lg border border-industrial-border/10">
                 <div className="flex justify-between items-center mb-2">
@@ -457,15 +470,15 @@ const OEEPage = () => {
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="font-bold text-2xl" style={{color: safeMetric(machine.oee) >= oeeTarget ? '#22c55e' : '#facc15'}}>{safeMetric(machine.oee)}%</p>
+                    <p className="font-bold text-2xl" style={{color: machine.oee != null ? (machine.oee >= oeeTarget ? '#22c55e' : '#facc15') : '#6b7280'}}>{machine.oee != null ? `${machine.oee}%` : '--'}</p>
                   </div>
                 </div>
                 <div className="h-2.5 rounded-full bg-industrial-card border border-industrial-border/20 overflow-hidden">
                   <div
                     className="h-full rounded-full transition-all duration-1000"
                     style={{
-                      width: `${Math.min(safeMetric(machine.oee), 100)}%`,
-                      backgroundColor: safeMetric(machine.oee) >= oeeTarget ? '#22c55e' : '#facc15',
+                      width: `${machine.oee != null ? Math.min(machine.oee, 100) : 0}%`,
+                      backgroundColor: machine.oee != null ? (machine.oee >= oeeTarget ? '#22c55e' : '#facc15') : '#4b5563',
                     }}
                   ></div>
                 </div>

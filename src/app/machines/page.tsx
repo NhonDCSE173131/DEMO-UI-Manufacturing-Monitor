@@ -16,7 +16,19 @@ import { TimeRangeSelector, TimeRange } from '@/components/TimeRangeSelector';
 import { getTimeRangeConfig } from '@/lib/time-range-config';
 import { useRealtimeStore, type TelemetryPoint } from '@/lib/realtime-store';
 import { ConnectionBadge, liveMetricValue } from '@/components/ConnectionBadge';
+import { ChartNoData } from '@/components/ChartNoData';
 import type { ConnectionStateType, DisplayStateType, Machine } from '@/types';
+import {
+  buildOeeMultiLineChart,
+  buildStockLineChart,
+  chartColors,
+  stockTooltip,
+  stockGrid,
+  stockXAxis,
+  stockYAxis,
+  stockDataZoom,
+  stockLineSeries,
+} from '@/lib/chart-config';
 
 type MetricKey =
   | 'powerKw'
@@ -38,6 +50,11 @@ const metricKeyToApiMetric: Partial<Record<MetricKey, string>> = {
   cycleTimeSec: 'cycleTimeSec',
   spindleSpeedRpm: 'spindleSpeedRpm',
   feedRateMmMin: 'feedRateMmMin',
+  cuttingSpeedMMin: 'cuttingSpeedMMin',
+  depthOfCutMm: 'depthOfCutMm',
+  feedPerToothMm: 'feedPerToothMm',
+  widthOfCutMm: 'widthOfCutMm',
+  materialRemovalRateCm3Min: 'materialRemovalRateCm3Min',
   temperatureC: 'temperatureC',
   vibrationPct: 'vibrationMmS',
 };
@@ -124,10 +141,11 @@ function MachineDetailContent() {
   const derivedStatus = statusFromDisplayState(resolvedDisplayState);
 
   // Helper: hiển thị giá trị live hoặc '--'
+  // ONLINE + UNSTABLE đều hiện số live (§5.2)
   const connState = selectedMachine?.connectionState as ConnectionStateType | undefined;
   const isLive = selectedMachine ? isMachineLive(selectedMachine.id) : false;
   const fmtLive = (val: number | undefined | null, decimals = 1) =>
-    liveMetricValue(val, isLive ? 'ONLINE' : (connState || 'OFFLINE'), (v) => formatNumber(v, decimals));
+    liveMetricValue(val, isLive ? (connState || 'ONLINE') : 'OFFLINE', (v) => formatNumber(v, decimals));
 
   const getDisplayStateLabel = (state?: DisplayStateType) => {
     if (state === 'ONLINE') return selectedLanguage === 'vi' ? 'Trực tuyến' : 'Online';
@@ -209,6 +227,11 @@ function MachineDetailContent() {
           spindleLoadPct: toSafeNumber((p as Record<string, unknown>).spindleLoadPct),
           servoLoadPct: toSafeNumber((p as Record<string, unknown>).servoLoadPct),
           cycleTimeSec: toSafeNumber((p as Record<string, unknown>).cycleTimeSec),
+          cuttingSpeedMMin: toSafeNumber((p as Record<string, unknown>).cuttingSpeedMMin),
+          depthOfCutMm: toSafeNumber((p as Record<string, unknown>).depthOfCutMm),
+          feedPerToothMm: toSafeNumber((p as Record<string, unknown>).feedPerToothMm),
+          widthOfCutMm: toSafeNumber((p as Record<string, unknown>).widthOfCutMm),
+          materialRemovalRateCm3Min: toSafeNumber((p as Record<string, unknown>).materialRemovalRateCm3Min),
           oee: toSafeNumber((p as Record<string, unknown>).oee),
           availability: toSafeNumber((p as Record<string, unknown>).availability),
           performance: toSafeNumber((p as Record<string, unknown>).performance),
@@ -257,11 +280,16 @@ function MachineDetailContent() {
   const liveFeedRate = liveValue(latestPoint?.feedRateMmMin, selectedMachine?.feedRateMmMin);
   const livePartCount = liveValue(latestPoint?.partCount ?? latestPoint?.outputCount, selectedMachine?.partCount);
   const liveNgCount = liveValue(latestPoint?.ngCount ?? latestPoint?.rejectCount, selectedMachine?.ngCount);
-  const safeMetric = (value: number | undefined) => value ?? 0;
   const safeMaintenanceDays = (value: number | undefined) => value ?? Number.POSITIVE_INFINITY;
-  const productionTotal = Math.max(1, selectedMachine?.partCount ?? 0);
-  const goodRatio = (((selectedMachine?.goodCount ?? 0) / productionTotal) * 100);
-  const ngRatio = (((selectedMachine?.ngCount ?? 0) / productionTotal) * 100);
+
+  // Production ratios: chỉ tính khi có dữ liệu thật từ BE
+  const productionTotal = livePartCount != null && livePartCount > 0 ? livePartCount : undefined;
+  const goodRatio = productionTotal != null && selectedMachine?.goodCount != null
+    ? (selectedMachine.goodCount / productionTotal) * 100
+    : undefined;
+  const ngRatio = productionTotal != null && liveNgCount != null
+    ? (liveNgCount / productionTotal) * 100
+    : undefined;
 
   if (!selectedMachine) {
     return (
@@ -273,80 +301,22 @@ function MachineDetailContent() {
     );
   }
 
-  const oeeChartOptions = {
-    tooltip: { trigger: 'axis', backgroundColor: '#111', borderColor: '#17a2b8', textStyle: { color: '#fff' } },
-    legend: {
-      top: 0,
-      textStyle: { color: '#8fb3d9', fontSize: 10 },
-    },
-    grid: { left: '1%', right: '1%', bottom: '5%', top: '18%', containLabel: false },
-    xAxis: { 
-       type: 'category', 
-       boundaryGap: false,
-       data: realtimeHistory.map(h => formatDateTime(h.timestamp).split(' ')[1] || ''), 
-       axisLabel: { show: false },
-       axisLine: { show: false },
-       axisTick: { show: false },
-       splitLine: { show: true, lineStyle: { color: '#333' } }
-    },
-    yAxis: { 
-       type: 'value', 
-       min: 0, 
-       max: 100,
-       splitLine: { show: true, lineStyle: { color: '#333' } },
-       axisLabel: { show: false },
-       axisLine: { show: false },
-       axisTick: { show: false }
-    },
-    series: [
-      { 
-        name: 'OEE', 
-        type: 'line', 
-        data: realtimeHistory.map(h => h.oee), 
-        itemStyle: { color: '#17a2b8' }, 
-        smooth: false, 
-        symbol: 'none', 
-        lineStyle: { width: 1.5, color: '#17a2b8' },
-        areaStyle: {
-            color: {
-                type: 'linear',
-                x: 0, y: 0, x2: 0, y2: 1,
-                colorStops: [
-                    { offset: 0, color: 'rgba(23, 162, 184, 0.5)' },
-                    { offset: 1, color: 'rgba(23, 162, 184, 0.05)' }
-                ]
-            }
-        }
-      },
-      {
-        name: selectedLanguage === 'en' ? 'Availability' : 'Khả dụng',
-        type: 'line',
-        data: realtimeHistory.map((h) => h.availability),
-        smooth: true,
-        symbol: 'none',
-        lineStyle: { width: 1.4, color: '#22c55e' },
-        itemStyle: { color: '#22c55e' },
-      },
-      {
-        name: selectedLanguage === 'en' ? 'Performance' : 'Hiệu suất',
-        type: 'line',
-        data: realtimeHistory.map((h) => h.performance),
-        smooth: true,
-        symbol: 'none',
-        lineStyle: { width: 1.4, color: '#60a5fa' },
-        itemStyle: { color: '#60a5fa' },
-      },
-      {
-        name: selectedLanguage === 'en' ? 'Quality' : 'Chất lượng',
-        type: 'line',
-        data: realtimeHistory.map((h) => h.quality),
-        smooth: true,
-        symbol: 'none',
-        lineStyle: { width: 1.4, color: '#facc15' },
-        itemStyle: { color: '#facc15' },
-      }
-    ]
-  };
+  // OEE multi-line chart - Stock style
+  const oeeChartLabels = realtimeHistory.map(h => {
+    const time = formatDateTime(h.timestamp).split(' ')[1] || '';
+    return time.length > 5 ? time.slice(0, 5) : time;
+  });
+  
+  const oeeChartOptions = buildOeeMultiLineChart({
+    labels: oeeChartLabels,
+    oeeData: realtimeHistory.map(h => h.oee),
+    availabilityData: realtimeHistory.map(h => h.availability),
+    performanceData: realtimeHistory.map(h => h.performance),
+    qualityData: realtimeHistory.map(h => h.quality),
+    showTarget: true,
+    targetValue: 85,
+    locale: selectedLanguage === 'en' ? 'en' : 'vi',
+  });
 
   const getMetricPointValue = (point: TelemetryPoint, metricKey: MetricKey): number | undefined => {
     if (metricKey === 'vibrationPct') return point.vibrationMmS ?? point.vibrationPct;
@@ -354,73 +324,55 @@ function MachineDetailContent() {
     if (metricKey === 'feedRateMmMin') return point.feedRateMmMin;
     if (metricKey === 'powerKw') return point.powerKw;
     if (metricKey === 'cycleTimeSec') return point.cycleTimeSec;
+    if (metricKey === 'cuttingSpeedMMin') return point.cuttingSpeedMMin;
+    if (metricKey === 'depthOfCutMm') return point.depthOfCutMm;
+    if (metricKey === 'feedPerToothMm') return point.feedPerToothMm;
+    if (metricKey === 'widthOfCutMm') return point.widthOfCutMm;
+    if (metricKey === 'materialRemovalRateCm3Min') return point.materialRemovalRateCm3Min;
+    if (metricKey === 'temperatureC') return point.temperatureC;
     return undefined;
   };
 
   const metricSeriesValues = (metricKey: MetricKey) => metricHistory.map((h) => getMetricPointValue(h, metricKey) ?? null);
 
-  const getMetricChartOptions = (metricKey: MetricKey, color: string, name: string) => ({
-      tooltip: { trigger: 'axis', backgroundColor: '#111', borderColor: color, textStyle: { color: '#fff' } },
-      grid: { left: '1%', right: '1%', bottom: '5%', top: '5%', containLabel: false },
-      xAxis: { 
-         type: 'category', 
-         boundaryGap: false,
-         data: metricHistory.map(h => formatDateTime(h.timestamp).split(' ')[1] || ''), 
-         axisLabel: { show: false },
-         axisLine: { show: false },
-         axisTick: { show: false },
-         splitLine: { show: true, lineStyle: { color: '#333' } }
-      },
-      yAxis: { 
-         type: 'value', 
-         min: 'dataMin',
-         splitLine: { show: true, lineStyle: { color: '#333' } },
-         axisLabel: { show: false },
-         axisLine: { show: false },
-         axisTick: { show: false }
-      },
-      series: [
-        { 
-           name: name, 
-           type: 'line', 
-           data: metricSeriesValues(metricKey), 
-           itemStyle: { color: color }, 
-           smooth: false, 
-           symbol: 'none', 
-           lineStyle: { width: 1.5 },
-           areaStyle: { 
-               opacity: 0.8,
-               color: {
-                   type: 'linear',
-                   x: 0, y: 0, x2: 0, y2: 1,
-                   colorStops: [
-                       { offset: 0, color: color.replace(')', ', 0.5)').replace('rgb', 'rgba') },
-                       { offset: 1, color: color.replace(')', ', 0.05)').replace('rgb', 'rgba') }
-                   ]
-               }
-           }
-        }
-      ]
+  // Metric chart - Stock style
+  const metricChartLabels = metricHistory.map(h => {
+    const time = formatDateTime(h.timestamp).split(' ')[1] || '';
+    return time.length > 5 ? time.slice(0, 5) : time;
   });
 
+  const getMetricChartOptions = (metricKey: MetricKey, color: string, name: string) =>
+    buildStockLineChart({
+      xAxisData: metricChartLabels,
+      series: [
+        {
+          name,
+          data: metricSeriesValues(metricKey),
+          color,
+          showArea: true,
+        },
+      ],
+      yAxisMin: 'dataMin',
+    });
+
   const allMetrics: Array<{ key: MetricKey; label: string; unit: string; color: string; value: number | undefined }> = [
-    { key: 'powerKw', label: selectedLanguage === 'en' ? 'Power' : 'Điện năng', unit: 'kW', color: 'rgb(23, 162, 184)', value: selectedMachine.powerKw },
-    { key: 'cycleTimeSec', label: messages.machine.cycleTime || 'Cycle Time', unit: 's', color: 'rgb(23, 162, 184)', value: selectedMachine.cycleTimeSec },
+    { key: 'powerKw', label: selectedLanguage === 'en' ? 'Power' : 'Điện năng', unit: 'kW', color: chartColors.primary, value: selectedMachine.powerKw },
+    { key: 'cycleTimeSec', label: messages.machine.cycleTime || 'Cycle Time', unit: 's', color: chartColors.success, value: selectedMachine.cycleTimeSec },
   ];
-  if (selectedMachine.spindleSpeedRpm !== undefined) allMetrics.push({ key: 'spindleSpeedRpm', label: selectedLanguage === 'en' ? 'Spindle Speed' : 'Tốc độ trục chính', unit: 'rpm', color: 'rgb(23, 162, 184)', value: selectedMachine.spindleSpeedRpm });
-  if (selectedMachine.feedRateMmMin !== undefined) allMetrics.push({ key: 'feedRateMmMin', label: selectedLanguage === 'en' ? 'Feed Rate' : 'Lượng chạy dao', unit: 'mm/min', color: 'rgb(23, 162, 184)', value: selectedMachine.feedRateMmMin });
-  if (selectedMachine.cuttingSpeedMMin !== undefined) allMetrics.push({ key: 'cuttingSpeedMMin', label: selectedLanguage === 'en' ? 'Cutting Speed' : 'Vận tốc cắt', unit: 'm/min', color: 'rgb(23, 162, 184)', value: selectedMachine.cuttingSpeedMMin });
-  if (selectedMachine.depthOfCutMm !== undefined) allMetrics.push({ key: 'depthOfCutMm', label: selectedLanguage === 'en' ? 'Depth of Cut' : 'Chiều sâu cắt', unit: 'mm', color: 'rgb(23, 162, 184)', value: selectedMachine.depthOfCutMm });
-  if (selectedMachine.feedPerToothMm !== undefined) allMetrics.push({ key: 'feedPerToothMm', label: selectedLanguage === 'en' ? 'Feed per Tooth' : 'Lượng chạy dao răng', unit: 'mm/tooth', color: 'rgb(23, 162, 184)', value: selectedMachine.feedPerToothMm });
-  if (selectedMachine.widthOfCutMm !== undefined) allMetrics.push({ key: 'widthOfCutMm', label: selectedLanguage === 'en' ? 'Width of Cut' : 'Chiều rộng cắt', unit: 'mm', color: 'rgb(23, 162, 184)', value: selectedMachine.widthOfCutMm });
-  if (selectedMachine.materialRemovalRateCm3Min !== undefined) allMetrics.push({ key: 'materialRemovalRateCm3Min', label: selectedLanguage === 'en' ? 'MRR' : 'Tốc độ bóc tách VL', unit: 'cm³/min', color: 'rgb(23, 162, 184)', value: selectedMachine.materialRemovalRateCm3Min });
-  if (selectedMachine.temperatureC !== undefined) allMetrics.push({ key: 'temperatureC', label: messages.machine.temperature || 'Temperature', unit: '°C', color: 'rgb(23, 162, 184)', value: selectedMachine.temperatureC });
+  if (selectedMachine.spindleSpeedRpm !== undefined) allMetrics.push({ key: 'spindleSpeedRpm', label: selectedLanguage === 'en' ? 'Spindle Speed' : 'Tốc độ trục chính', unit: 'rpm', color: chartColors.info, value: selectedMachine.spindleSpeedRpm });
+  if (selectedMachine.feedRateMmMin !== undefined) allMetrics.push({ key: 'feedRateMmMin', label: selectedLanguage === 'en' ? 'Feed Rate' : 'Lượng chạy dao', unit: 'mm/min', color: chartColors.warning, value: selectedMachine.feedRateMmMin });
+  if (selectedMachine.cuttingSpeedMMin !== undefined) allMetrics.push({ key: 'cuttingSpeedMMin', label: selectedLanguage === 'en' ? 'Cutting Speed' : 'Vận tốc cắt', unit: 'm/min', color: chartColors.purple, value: selectedMachine.cuttingSpeedMMin });
+  if (selectedMachine.depthOfCutMm !== undefined) allMetrics.push({ key: 'depthOfCutMm', label: selectedLanguage === 'en' ? 'Depth of Cut' : 'Chiều sâu cắt', unit: 'mm', color: chartColors.primary, value: selectedMachine.depthOfCutMm });
+  if (selectedMachine.feedPerToothMm !== undefined) allMetrics.push({ key: 'feedPerToothMm', label: selectedLanguage === 'en' ? 'Feed per Tooth' : 'Lượng chạy dao răng', unit: 'mm/tooth', color: chartColors.success, value: selectedMachine.feedPerToothMm });
+  if (selectedMachine.widthOfCutMm !== undefined) allMetrics.push({ key: 'widthOfCutMm', label: selectedLanguage === 'en' ? 'Width of Cut' : 'Chiều rộng cắt', unit: 'mm', color: chartColors.info, value: selectedMachine.widthOfCutMm });
+  if (selectedMachine.materialRemovalRateCm3Min !== undefined) allMetrics.push({ key: 'materialRemovalRateCm3Min', label: selectedLanguage === 'en' ? 'MRR' : 'Tốc độ bóc tách VL', unit: 'cm³/min', color: chartColors.warning, value: selectedMachine.materialRemovalRateCm3Min });
+  if (selectedMachine.temperatureC !== undefined) allMetrics.push({ key: 'temperatureC', label: messages.machine.temperature || 'Temperature', unit: '°C', color: chartColors.danger, value: selectedMachine.temperatureC });
   if (selectedMachine.vibrationPct !== undefined) {
     allMetrics.push({
       key: 'vibrationPct',
       label: selectedLanguage === 'en' ? 'Vibration' : 'Độ rung',
       unit: 'mm/s',
-      color: 'rgb(23, 162, 184)',
+      color: chartColors.purple,
       value: selectedMachine.vibrationPct,
     });
   }
@@ -731,10 +683,10 @@ function MachineDetailContent() {
                 <div className="bg-industrial-darker p-4 rounded-lg border border-industrial-border/10 cursor-pointer hover:bg-industrial-card transition-colors" onClick={() => setSelectedMetric('temperatureC')}>
                    <div className="flex items-center justify-between mb-2">
                     <p className="text-sm text-industrial-text-secondary">{messages.machine.temperature || 'Nhiệt độ'}</p>
-                    <Thermometer size={16} className={(liveTemperatureC ?? 0) > 70 ? 'text-industrial-error' : 'text-industrial-warning'} />
+                    <Thermometer size={16} className={isLive && liveTemperatureC != null && liveTemperatureC > 70 ? 'text-industrial-error' : 'text-industrial-warning'} />
                   </div>
                   <div className="flex items-end gap-2">
-                    <p className={`text-xl font-bold ${(liveTemperatureC ?? 0) > 70 ? 'text-industrial-error animate-pulse' : 'text-industrial-text'}`}>
+                    <p className={`text-xl font-bold ${isLive && liveTemperatureC != null && liveTemperatureC > 70 ? 'text-industrial-error animate-pulse' : 'text-industrial-text'}`}>
                         {fmtLive(liveTemperatureC)}°C
                     </p>
                   </div>
@@ -780,16 +732,16 @@ function MachineDetailContent() {
                 <div className="relative w-32 h-32 mb-2">
                   <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
                     <circle cx="50" cy="50" r="40" fill="none" stroke="rgba(30, 144, 255, 0.1)" strokeWidth="8" />
-                    <circle cx="50" cy="50" r="40" fill="none" stroke={safeMetric(liveOee) >= 85 ? "#22c55e" : safeMetric(liveOee) >= 60 ? "#facc15" : "#ef4444"} strokeWidth="8" strokeDasharray={`${((isLive ? safeMetric(liveOee) : 0) / 100) * 251.2} 251.2`} strokeLinecap="round" className="transition-all duration-1000" />
+                    <circle cx="50" cy="50" r="40" fill="none" stroke={isLive && liveOee != null ? (liveOee >= 85 ? "#22c55e" : liveOee >= 60 ? "#facc15" : "#ef4444") : "#4b5563"} strokeWidth="8" strokeDasharray={`${((isLive && liveOee != null ? liveOee : 0) / 100) * 251.2} 251.2`} strokeLinecap="round" className="transition-all duration-1000" />
                   </svg>
                   <div className="absolute inset-0 flex flex-col items-center justify-center">
                     <p className="text-4xl font-bold text-industrial-text">{fmtLive(liveOee, 0)}</p>
-                    {isLive && <p className="text-xs text-industrial-text-secondary">%</p>}
+                    {isLive && liveOee != null && <p className="text-xs text-industrial-text-secondary">%</p>}
                   </div>
                 </div>
                 <div className="text-center mt-3 flex flex-col items-center">
-                  <p className={`px-4 py-1.5 rounded-full text-xs font-bold ${safeMetric(liveOee) >= 85 ? "bg-industrial-success/20 text-industrial-success" : safeMetric(liveOee) >= 60 ? "bg-industrial-warning/20 text-industrial-warning" : "bg-industrial-error/20 text-industrial-error"}`}>
-                    OEE: {fmtLive(liveOee, 0)}{isLive ? '%' : ''}
+                  <p className={`px-4 py-1.5 rounded-full text-xs font-bold ${isLive && liveOee != null ? (liveOee >= 85 ? "bg-industrial-success/20 text-industrial-success" : liveOee >= 60 ? "bg-industrial-warning/20 text-industrial-warning" : "bg-industrial-error/20 text-industrial-error") : "bg-gray-500/20 text-gray-400"}`}>
+                    OEE: {fmtLive(liveOee, 0)}{isLive && liveOee != null ? '%' : ''}
                   </p>
                 </div>
               </div>
@@ -802,7 +754,7 @@ function MachineDetailContent() {
                     <span className="text-sm font-bold text-industrial-success">{fmtLive(liveAvailability, 0)}{isLive ? '%' : ''}</span>
                   </div>
                   <div className="h-2 rounded-full bg-industrial-card border border-industrial-border/10 overflow-hidden shadow-inner">
-                    <div className="h-full bg-industrial-success transition-all duration-500" style={{width: `${isLive ? safeMetric(liveAvailability) : 0}%`}}></div>
+                    <div className="h-full bg-industrial-success transition-all duration-500" style={{width: `${isLive && liveAvailability != null ? liveAvailability : 0}%`}}></div>
                   </div>
                 </div>
                 <div>
@@ -811,7 +763,7 @@ function MachineDetailContent() {
                     <span className="text-sm font-bold text-industrial-info">{fmtLive(livePerformance, 0)}{isLive ? '%' : ''}</span>
                   </div>
                   <div className="h-2 rounded-full bg-industrial-card border border-industrial-border/10 overflow-hidden shadow-inner">
-                    <div className="h-full bg-industrial-info transition-all duration-500" style={{width: `${isLive ? safeMetric(livePerformance) : 0}%`}}></div>
+                    <div className="h-full bg-industrial-info transition-all duration-500" style={{width: `${isLive && livePerformance != null ? livePerformance : 0}%`}}></div>
                   </div>
                 </div>
                 <div>
@@ -820,7 +772,7 @@ function MachineDetailContent() {
                     <span className="text-sm font-bold text-industrial-warning">{fmtLive(liveQuality, 0)}{isLive ? '%' : ''}</span>
                   </div>
                   <div className="h-2 rounded-full bg-industrial-card border border-industrial-border/10 overflow-hidden shadow-inner">
-                    <div className="h-full bg-industrial-warning transition-all duration-500" style={{width: `${isLive ? safeMetric(liveQuality) : 0}%`}}></div>
+                    <div className="h-full bg-industrial-warning transition-all duration-500" style={{width: `${isLive && liveQuality != null ? liveQuality : 0}%`}}></div>
                   </div>
                 </div>
                 <div className="pt-2">
@@ -854,11 +806,11 @@ function MachineDetailContent() {
                 </div>
                 <div className="mt-4 bg-industrial-bg/40 border border-industrial-border/10 rounded-lg p-3">
                   <div className="flex justify-between text-xs mb-2">
-                    <span className="text-industrial-success">{selectedLanguage === 'en' ? 'Good Ratio' : 'Tỷ lệ đạt'}: {isLive ? `${formatNumber(goodRatio, 1)}%` : '--'}</span>
-                    <span className="text-industrial-error">{selectedLanguage === 'en' ? 'NG Ratio' : 'Tỷ lệ lỗi'}: {isLive ? `${formatNumber(ngRatio, 1)}%` : '--'}</span>
+                    <span className="text-industrial-success">{selectedLanguage === 'en' ? 'Good Ratio' : 'Tỷ lệ đạt'}: {isLive && goodRatio != null ? `${formatNumber(goodRatio, 1)}%` : '--'}</span>
+                    <span className="text-industrial-error">{selectedLanguage === 'en' ? 'NG Ratio' : 'Tỷ lệ lỗi'}: {isLive && ngRatio != null ? `${formatNumber(ngRatio, 1)}%` : '--'}</span>
                   </div>
                   <div className="h-2 rounded-full bg-industrial-card overflow-hidden border border-industrial-border/10">
-                    <div className="h-full bg-industrial-success" style={{ width: `${isLive ? Math.min(100, goodRatio) : 0}%` }}></div>
+                    <div className="h-full bg-industrial-success" style={{ width: `${isLive && goodRatio != null ? Math.min(100, goodRatio) : 0}%` }}></div>
                   </div>
                 </div>
               </div>
@@ -873,8 +825,16 @@ function MachineDetailContent() {
                  </h4>
                  <TimeRangeSelector value={timeRange} onChange={setTimeRange} showLabel={false} />
               </div>
-              <div className="bg-[#111] p-1 rounded-lg h-full border border-[#333]">
-                  <ReactECharts option={oeeChartOptions} style={{height: '100%', width: '100%'}} />
+              <div className="bg-[#111] p-1 rounded-lg h-full border border-[#333] min-w-0 overflow-hidden">
+                  {realtimeHistory.length > 0 ? (
+                    <ReactECharts option={oeeChartOptions} style={{height: '100%', width: '100%'}} />
+                  ) : (
+                    <ChartNoData
+                      title={selectedLanguage === 'vi' ? 'Chưa có dữ liệu OEE' : 'No OEE data'}
+                      message={selectedLanguage === 'vi' ? 'Đang chờ dữ liệu lịch sử từ backend...' : 'Waiting for history data from backend...'}
+                      height="h-full"
+                    />
+                  )}
               </div>
             </div>
           </div>
@@ -902,9 +862,9 @@ function MachineDetailContent() {
                   cy="50"
                   r="40"
                   fill="none"
-                  stroke={safeMetric(selectedMachine.machineHealth) > 70 ? "#22c55e" : safeMetric(selectedMachine.machineHealth) > 40 ? "#facc15" : "#ef4444"}
+                  stroke={isLive && selectedMachine.machineHealth != null ? (selectedMachine.machineHealth > 70 ? "#22c55e" : selectedMachine.machineHealth > 40 ? "#facc15" : "#ef4444") : "#4b5563"}
                   strokeWidth="8"
-                  strokeDasharray={`${((isLive ? safeMetric(selectedMachine.machineHealth) : 0) / 100) * 251.2} 251.2`}
+                  strokeDasharray={`${((isLive && selectedMachine.machineHealth != null ? selectedMachine.machineHealth : 0) / 100) * 251.2} 251.2`}
                   strokeLinecap="round"
                   className="transition-all duration-1000"
                 />
@@ -915,9 +875,9 @@ function MachineDetailContent() {
                 </p>
               </div>
             </div>
-            <p className="text-center text-sm font-medium" style={{color: safeMetric(selectedMachine.machineHealth) > 70 ? "#22c55e" : safeMetric(selectedMachine.machineHealth) > 40 ? "#facc15" : "#ef4444" }}>
+            <p className="text-center text-sm font-medium" style={{color: isLive && selectedMachine.machineHealth != null ? (selectedMachine.machineHealth > 70 ? "#22c55e" : selectedMachine.machineHealth > 40 ? "#facc15" : "#ef4444") : "#6b7280" }}>
               {/* Sử dụng getHealthScore với messages và selectedLanguage */}
-              {getHealthScore(safeMetric(selectedMachine.machineHealth), selectedLanguage, messages)}
+              {isLive && selectedMachine.machineHealth != null ? getHealthScore(selectedMachine.machineHealth, selectedLanguage, messages) : (selectedLanguage === 'vi' ? 'Chưa có dữ liệu' : 'No data')}
             </p>
           </div>
 
@@ -1061,9 +1021,17 @@ function MachineDetailContent() {
                      <TimeRangeSelector value={metricRange} onChange={setMetricRange} showLabel={false} />
                   </div>
                   
-                  <div className="flex-1 min-h-0 border border-[#333] relative">
-                     <ReactECharts option={getMetricChartOptions(activeMetricObj.key, activeMetricObj.color, activeMetricObj.label)} style={{height: '100%', width: '100%'}} />
-                  </div>
+                   <div className="flex-1 min-h-0 border border-[#333] relative min-w-0 overflow-hidden">
+                     {metricHistory.length > 0 ? (
+                       <ReactECharts option={getMetricChartOptions(activeMetricObj.key, activeMetricObj.color, activeMetricObj.label)} style={{height: '100%', width: '100%'}} />
+                     ) : (
+                       <ChartNoData
+                         title={selectedLanguage === 'vi' ? 'Chưa có dữ liệu' : 'No data available'}
+                         message={selectedLanguage === 'vi' ? 'Đang chờ dữ liệu từ backend...' : 'Waiting for data from backend...'}
+                         height="h-full"
+                       />
+                     )}
+                   </div>
                   
                   <div className="mt-4 grid grid-cols-4 gap-4 text-sm text-gray-400">
                      <div className="flex flex-col">

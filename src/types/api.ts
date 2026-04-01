@@ -62,6 +62,8 @@ export interface TelemetrySeriesResponse {
 export interface AnalyticsSeriesPointResponse {
   label?: string;
   timestamp?: string;
+  ts?: string;
+  bucketEnd?: string;
   value?: number;
   unit?: string;
   oee?: number;
@@ -70,6 +72,11 @@ export interface AnalyticsSeriesPointResponse {
   quality?: number;
   powerKw?: number;
   energyKwh?: number;
+  totalPowerKw?: number;
+  totalEnergyKwh?: number;
+  sampleCount?: number;
+  missing?: boolean;
+  metrics?: Record<string, unknown>;
   cost?: number;
   [key: string]: unknown;
 }
@@ -199,10 +206,11 @@ export interface SseEventEnvelope<T = unknown> {
   eventId?: string;
   eventType?: string;
   machineId?: string;
+  machineCode?: string;
   sourceTs?: string;
   receivedAt?: string;
   sequence?: number;
-  quality?: string;
+  quality?: number | null;
   payload?: T;
 }
 
@@ -213,4 +221,3 @@ export interface MachineHistoryQuery {
   aggregation?: 'avg' | 'min' | 'max' | 'last';
   metrics?: string[];
 }
-
