@@ -6,12 +6,11 @@ import { useMachinesData } from '@/hooks/useMachinesData';
 import { useAlarmsData } from '@/hooks/useAlarmsData';
 import { formatDateTime, getSeverityBgColor, getSeverityBorderColor } from '@/lib/utils';
 import { AlertTriangle, AlertCircle, Info, Wifi, WifiOff, Radio } from 'lucide-react';
-import ReactECharts from 'echarts-for-react';
-import enMessages from '@/locales/en.json';
-import viMessages from '@/locales/vi.json';
+import { StockChart } from '@/components/StockChart';
 import { useMemo, useState } from 'react';
 import { TimeRangeSelector, TimeRange } from '@/components/TimeRangeSelector';
-import { getDowntimeUnitLabel, getTimeRangeConfig, normalizeDowntimeMinutes } from '@/lib/time-range-config';
+import { getDowntimeUnitLabel, getTimeAxisLabel, getTimeRangeConfig, getXAxisFormatter, normalizeDowntimeMinutes } from '@/lib/time-range-config';
+import { buildStockLineChart, chartColors, stockBarSeries, stockGrid, stockTooltip, stockYAxis } from '@/lib/chart-config';
 
 const AlarmPage = () => {
   const { selectedLanguage } = useMachineStore();
@@ -73,6 +72,11 @@ const AlarmPage = () => {
 
   const timelineConfig = getTimeRangeConfig(timelineRange);
   const paretoConfig = getTimeRangeConfig(paretoRange);
+  const timelineXAxisFormatter = useMemo(() => getXAxisFormatter(timelineRange), [timelineRange]);
+  const timelineXAxisName = useMemo(
+    () => getTimeAxisLabel(timelineRange, selectedLanguage === 'en' ? 'en' : 'vi'),
+    [timelineRange, selectedLanguage],
+  );
   const timelineUnitLabel = getDowntimeUnitLabel(timelineRange, selectedLanguage === 'en' ? 'en' : 'vi');
   const paretoUnitLabel = getDowntimeUnitLabel(paretoRange, selectedLanguage === 'en' ? 'en' : 'vi');
   const scopedTimelineEvents = downtimeEvents
@@ -91,53 +95,39 @@ const AlarmPage = () => {
   const paretoData = Object.entries(reasonMap).sort((a, b) => b[1] - a[1]).slice(0, 8);
 
   const paretoOption = {
-    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, backgroundColor: '#111', borderColor: '#ef4444', textStyle: { color: '#fff' } },
-    grid: { left: '3%', right: '3%', top: '8%', bottom: '10%', containLabel: true },
+    tooltip: stockTooltip(chartColors.danger),
+    grid: stockGrid({ top: '8%', bottom: '10%' }),
     xAxis: {
-      type: 'category',
+      type: 'category' as const,
       data: paretoData.map((item) => item[0]),
-      axisLabel: { color: '#8fb3d9', rotate: 18 },
-      axisLine: { lineStyle: { color: '#28445f' } },
+      axisLabel: { color: chartColors.axisLabel, rotate: 18 },
+      axisLine: { lineStyle: { color: chartColors.axisLine } },
+      axisTick: { show: false },
     },
-    yAxis: {
-      type: 'value',
-      axisLabel: { color: '#8fb3d9', formatter: `{value} ${paretoUnitLabel}` },
-      splitLine: { lineStyle: { color: '#1a2a3a' } },
-    },
+    yAxis: stockYAxis({ unit: paretoUnitLabel }),
     series: [
-      {
-        type: 'bar',
-        data: paretoData.map((item) => item[1]),
-        itemStyle: { color: '#ef4444', borderRadius: [4, 4, 0, 0] },
-        barWidth: '55%',
-      },
+      stockBarSeries(
+        selectedLanguage === 'en' ? 'Downtime' : 'Thời gian dừng',
+        paretoData.map((item) => item[1]),
+        chartColors.danger,
+        { gradient: true },
+      ),
     ],
   };
 
-  const timelineOption = {
-    tooltip: { trigger: 'axis', backgroundColor: '#111', borderColor: '#17a2b8', textStyle: { color: '#fff' } },
-    grid: { left: '3%', right: '3%', top: '10%', bottom: '8%', containLabel: true },
-    xAxis: {
-      type: 'category',
-      data: scopedTimelineEvents.map((event) => formatDateTime(event.timestamp)),
-      axisLabel: { color: '#8fb3d9', fontSize: 10 },
-      axisLine: { lineStyle: { color: '#28445f' } },
-    },
-    yAxis: {
-      type: 'value',
-      axisLabel: { color: '#8fb3d9', formatter: `{value} ${timelineUnitLabel}` },
-      splitLine: { lineStyle: { color: '#1a2a3a' } },
-    },
+  const timelineOption = buildStockLineChart({
+    xAxisData: scopedTimelineEvents.map((event) => timelineXAxisFormatter(event.timestamp)),
     series: [
       {
-        type: 'line',
+        name: selectedLanguage === 'en' ? 'Downtime timeline' : 'Dòng thời gian dừng máy',
         data: scopedTimelineEvents.map((event) => normalizeDowntimeMinutes(event.durationMin || 0, timelineRange)),
-        smooth: true,
-        lineStyle: { color: '#17a2b8', width: 2 },
-        itemStyle: { color: '#17a2b8' },
+        color: chartColors.primary,
+        showArea: true,
       },
     ],
-  };
+    yAxisUnit: timelineUnitLabel,
+    xAxisName: timelineXAxisName,
+  });
 
   const criticalPending = filteredEvents
     .filter((event) => event.severity === 'critical' && event.acknowledged === false)
@@ -265,7 +255,7 @@ const AlarmPage = () => {
             <TimeRangeSelector value={timelineRange} onChange={setTimelineRange} showLabel={false} />
           </div>
           <div className="h-64">
-            <ReactECharts option={timelineOption} style={{ height: '100%', width: '100%' }} />
+            <StockChart option={timelineOption} style={{ height: '100%', width: '100%' }} />
           </div>
         </div>
         <div className="card-industrial p-6">
@@ -274,7 +264,7 @@ const AlarmPage = () => {
             <TimeRangeSelector value={paretoRange} onChange={setParetoRange} showLabel={false} />
           </div>
           <div className="h-64">
-            <ReactECharts option={paretoOption} style={{ height: '100%', width: '100%' }} />
+            <StockChart option={paretoOption} style={{ height: '100%', width: '100%' }} />
           </div>
         </div>
       </div>

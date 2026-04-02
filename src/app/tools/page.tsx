@@ -4,12 +4,13 @@ import { useMachineStore } from '@/lib/store';
 import { useMachinesData } from '@/hooks/useMachinesData';
 import { formatNumber } from '@/lib/utils';
 import { Wrench, CheckCircle, AlertTriangle, AlertCircle, X } from 'lucide-react';
-import ReactECharts from 'echarts-for-react';
+import { StockChart } from '@/components/StockChart';
 import enMessages from '@/locales/en.json';
 import viMessages from '@/locales/vi.json';
 import { useMemo, useState } from 'react';
 import { TimeRangeSelector, TimeRange } from '@/components/TimeRangeSelector';
-import { getTimeRangeConfig } from '@/lib/time-range-config';
+import { buildTimeAxisLabels, getTimeAxisLabel, getTimeRangeConfig } from '@/lib/time-range-config';
+import { buildGaugeChart, buildStockLineChart, chartColors } from '@/lib/chart-config';
 
 const ToolsPage = () => {
   const { tools, selectedLanguage, replaceTool } = useMachineStore();
@@ -40,60 +41,40 @@ const ToolsPage = () => {
     return trend.slice(trend.length - points);
   };
 
+  const getWearLabels = (range: TimeRange, pointCount: number) => {
+    const labels = buildTimeAxisLabels(range, selectedLanguage === 'en' ? 'en' : 'vi');
+    return labels.slice(Math.max(0, labels.length - pointCount));
+  };
+
   const topToolsForHealthPanel = useMemo(
     () => tools.slice(0, 3),
     [tools],
   );
 
-  const buildWearTrendOption = (toolName: string, data: number[]) => ({
-    tooltip: { trigger: 'axis', backgroundColor: '#111', borderColor: '#17a2b8', textStyle: { color: '#fff' } },
-    grid: { left: '3%', right: '3%', top: '15%', bottom: '12%', containLabel: true },
-    xAxis: {
-      type: 'category',
-      data: data.map((_, idx) => `T${idx + 1}`),
-      axisLabel: { color: '#8fb3d9', fontSize: 10 },
-      axisLine: { lineStyle: { color: '#28445f' } },
-    },
-    yAxis: {
-      type: 'value',
-      max: 100,
-      axisLabel: { color: '#8fb3d9', formatter: '{value}%' },
-      splitLine: { lineStyle: { color: '#1a2a3a' } },
-    },
-    series: [
-      {
-        name: toolName,
-        type: 'line',
-        data,
-        smooth: true,
-        symbol: 'circle',
-        symbolSize: 5,
-        lineStyle: { color: '#17a2b8', width: 2 },
-        itemStyle: { color: '#17a2b8' },
-      },
-    ],
-  });
+  const buildWearTrendOption = (toolName: string, data: number[]) =>
+    buildStockLineChart({
+      xAxisData: getWearLabels(wearRange, data.length),
+      series: [
+        {
+          name: toolName,
+          data,
+          color: chartColors.primary,
+          showArea: true,
+        },
+      ],
+      yAxisUnit: '%',
+      xAxisName: getTimeAxisLabel(wearRange, selectedLanguage === 'en' ? 'en' : 'vi'),
+      yAxisMin: 0,
+      yAxisMax: 100,
+    });
 
-  const buildLifeGauge = (value: number) => ({
-    series: [
-      {
-        type: 'pie',
-        radius: ['72%', '92%'],
-        center: ['50%', '50%'],
-        silent: true,
-        label: { show: false },
-        data: [
-          {
-            value,
-            itemStyle: {
-              color: value <= 20 ? '#ef4444' : value <= 50 ? '#facc15' : '#22c55e',
-            },
-          },
-          { value: Math.max(0, 100 - value), itemStyle: { color: 'rgba(143,179,217,0.18)' } },
-        ],
-      },
-    ],
-  });
+  const buildLifeGauge = (value: number) =>
+    buildGaugeChart({
+      value,
+      min: 0,
+      max: 100,
+      thresholds: { good: 50, warning: 20 },
+    });
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -157,7 +138,7 @@ const ToolsPage = () => {
                     <p className="text-xs text-industrial-text-secondary">{getToolMachineName(tool.machineId)}</p>
                   </div>
                   <div className="w-16 h-16">
-                    <ReactECharts option={buildLifeGauge(predictedLife)} style={{ height: '100%', width: '100%' }} />
+                    <StockChart option={buildLifeGauge(predictedLife)} style={{ height: '100%', width: '100%' }} />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-xs">
@@ -196,7 +177,7 @@ const ToolsPage = () => {
                   </span>
                 </div>
                 <div className="h-40">
-                  <ReactECharts option={buildWearTrendOption(tool.name, getWearWindow(tool.wearTrend, wearRange))} style={{ height: '100%', width: '100%' }} />
+                  <StockChart option={buildWearTrendOption(tool.name, getWearWindow(tool.wearTrend, wearRange))} style={{ height: '100%', width: '100%' }} />
                 </div>
               </div>
             ))}

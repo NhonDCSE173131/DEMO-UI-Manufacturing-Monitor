@@ -7,14 +7,15 @@ import { useAlarmsData } from '@/hooks/useAlarmsData';
 import { useOeeAnalytics } from '@/hooks/useOeeAnalytics';
 import { formatNumber } from '@/lib/utils';
 import { Activity, Target, CalendarClock, Package, AlertTriangle } from 'lucide-react';
-import ReactECharts from 'echarts-for-react';
+import { StockChart } from '@/components/StockChart';
 import enMessages from '@/locales/en.json';
 import viMessages from '@/locales/vi.json';
 import { TimeRangeSelector, TimeRange } from '@/components/TimeRangeSelector';
 import { useMemo, useState } from 'react';
-import { buildTimeAxisLabels, getDowntimeUnitLabel, getTimeRangeConfig, normalizeDowntimeMinutes } from '@/lib/time-range-config';
+import { getDowntimeUnitLabel, getTimeAxisLabel, getTimeRangeConfig, getXAxisFormatter, normalizeDowntimeMinutes } from '@/lib/time-range-config';
 import { ChartNoData } from '@/components/ChartNoData';
 import { legacyStatusFromDisplayState, resolveMachineDisplayState } from '@/lib/machine-presentation';
+import { buildTelemetryTrendForRange } from '@/lib/realtime-chart';
 import {
   buildStockLineChart,
   chartColors,
@@ -97,9 +98,9 @@ const OEEPage = () => {
         : 'Tất cả ca'
       : selectedShift.replace('_', ' ').toUpperCase();
   const localeKey = selectedLanguage === 'en' ? 'en' : 'vi';
-  const trendConfig = getTimeRangeConfig(oeeTrendRange);
+  const oeeXAxisFormatter = useMemo(() => getXAxisFormatter(oeeTrendRange), [oeeTrendRange]);
+  const oeeXAxisName = useMemo(() => getTimeAxisLabel(oeeTrendRange, localeKey), [oeeTrendRange, localeKey]);
   const paretoConfig = getTimeRangeConfig(paretoRange);
-  const trendAxisLabels = buildTimeAxisLabels(oeeTrendRange, localeKey);
   const paretoUnitLabel = getDowntimeUnitLabel(paretoRange, localeKey);
 
   // §5.10: Không dùng ?? 0 cho field chưa có — chỉ tính từ machines có data thật
@@ -127,36 +128,22 @@ const OEEPage = () => {
   // Fallback: build OEE trend from SSE telemetry time-series
   const oeeTrendFromSse = useMemo(() => {
     if (oeeTrendFromApi) return null;
-    const windowMs = trendConfig.totalMinutes * 60 * 1000;
-    const fromMs = Date.now() - windowMs;
-    const allPoints: { ts: number; oee: number }[] = [];
-    for (const series of Object.values(telemetrySeriesByMachineId)) {
-      for (const p of series) {
-        const ts = new Date(p.timestamp).getTime();
-        if (ts >= fromMs && p.oee != null) {
-          allPoints.push({ ts, oee: p.oee });
-        }
-      }
-    }
-    if (allPoints.length === 0) return null;
-    const bucketCount = trendConfig.pointCount;
-    const bucketSize = windowMs / bucketCount;
-    const buckets = Array.from({ length: bucketCount }, () => ({ sum: 0, count: 0 }));
-    for (const p of allPoints) {
-      const idx = Math.min(bucketCount - 1, Math.floor((p.ts - fromMs) / bucketSize));
-      buckets[idx].sum += p.oee;
-      buckets[idx].count += 1;
-    }
-    return buckets.map((b) => (b.count > 0 ? Math.round(b.sum / b.count) : null));
-  }, [oeeTrendFromApi, telemetrySeriesByMachineId, trendConfig.totalMinutes, trendConfig.pointCount]);
+    return buildTelemetryTrendForRange({
+      seriesByMachineId: telemetrySeriesByMachineId,
+      range: oeeTrendRange,
+      locale: localeKey,
+      metricSelector: (point) => point.oee,
+      digits: 0,
+    });
+  }, [oeeTrendFromApi, telemetrySeriesByMachineId, oeeTrendRange, localeKey]);
 
-  const oeeTrendData = oeeTrendFromApi ?? oeeTrendFromSse;
+  const oeeTrendData = oeeTrendFromApi ?? oeeTrendFromSse?.values;
   const hasOeeTrendData = oeeTrendData != null && oeeTrendData.some((value) => value != null);
 
   // OEE Trend chart - Stock style
-  const oeeTrendAxisLabels = oeeAnalytics.trend.length > 0 
-    ? oeeAnalytics.trend.map((p) => getTrendPointLabel(p as Record<string, unknown>)) 
-    : trendAxisLabels;
+  const oeeTrendAxisLabels = oeeAnalytics.trend.length > 0
+    ? oeeAnalytics.trend.map((p) => oeeXAxisFormatter(getTrendPointLabel(p as Record<string, unknown>)))
+    : oeeTrendFromSse?.labels ?? [];
 
   const oeeTrendOption = buildStockLineChart({
     xAxisData: oeeTrendAxisLabels,
@@ -169,6 +156,7 @@ const OEEPage = () => {
       },
     ],
     yAxisUnit: '%',
+    xAxisName: oeeXAxisName,
     yAxisMin: 40,
     yAxisMax: 100,
     markLine: {
@@ -377,7 +365,7 @@ const OEEPage = () => {
           </div>
           <div className="h-64 min-w-0 overflow-hidden">
             {hasOeeTrendData ? (
-              <ReactECharts option={oeeTrendOption} style={{ height: '100%', width: '100%' }} />
+              <StockChart option={oeeTrendOption} style={{ height: '100%', width: '100%' }} />
             ) : (
               <ChartNoData
                 title={selectedLanguage === 'vi' ? 'Chưa có dữ liệu OEE trend' : 'No OEE trend data'}
@@ -443,7 +431,7 @@ const OEEPage = () => {
             <TimeRangeSelector value={paretoRange} onChange={setParetoRange} showLabel={false} />
           </div>
           <div className="h-72 min-w-0 overflow-hidden">
-            <ReactECharts option={paretoOption} style={{ height: '100%', width: '100%' }} />
+            <StockChart option={paretoOption} style={{ height: '100%', width: '100%' }} />
           </div>
         </div>
       </div>

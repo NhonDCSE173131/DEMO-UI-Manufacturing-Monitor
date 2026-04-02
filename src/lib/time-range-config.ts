@@ -23,6 +23,11 @@ export function getTimeRangeConfig(range: TimeRange): RangeConfig {
   return RANGE_CONFIG[range];
 }
 
+export function getTimeAxisLabel(range: TimeRange, locale: LocaleKey): string {
+  const format = getTimeRangeConfig(range).xAxisFormat;
+  return locale === 'en' ? `Time (${format})` : `Thời gian (${format})`;
+}
+
 /**
  * Trả về formatter function cho trục X phù hợp với TimeRange.
  * Dùng làm axisLabel.formatter trong ECharts.
@@ -36,7 +41,10 @@ export function getXAxisFormatter(range: TimeRange): (value: string) => string {
     if (range === '60s') {
       return `${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
     }
-    if (range === '1h' || range === '1d') {
+    if (range === '1h') {
+      return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    }
+    if (range === '1d') {
       return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
     }
     // 1w, 1m
@@ -55,7 +63,13 @@ export function buildTimeAxisLabels(range: TimeRange, locale: LocaleKey): string
           minute: '2-digit',
           second: '2-digit',
         })
-      : range === '1h' || range === '1d'
+      : range === '1h'
+      ? new Intl.DateTimeFormat(locale === 'vi' ? 'vi-VN' : 'en-US', {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+        })
+      : range === '1d'
       ? new Intl.DateTimeFormat(locale === 'vi' ? 'vi-VN' : 'en-US', {
           hour: '2-digit',
           minute: '2-digit',

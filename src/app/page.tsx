@@ -8,16 +8,17 @@ import { useEnergyAnalytics } from '@/hooks/useEnergyAnalytics';
 import { useOeeAnalytics } from '@/hooks/useOeeAnalytics';
 import { formatNumber, formatDateTime } from '@/lib/utils';
 import { Activity, Zap, CheckCircle, AlertCircle, Settings, Power, BarChart3, ShieldAlert } from 'lucide-react';
-import ReactECharts from 'echarts-for-react';
+import { StockChart } from '@/components/StockChart';
 import enMessages from '@/locales/en.json';
 import viMessages from '@/locales/vi.json';
 import Link from 'next/link';
 import { TimeRangeSelector, TimeRange } from '@/components/TimeRangeSelector';
 import { useMemo, useState } from 'react';
-import { buildTimeAxisLabels, getDowntimeUnitLabel, getTimeRangeConfig, normalizeDowntimeMinutes } from '@/lib/time-range-config';
+import { getDowntimeUnitLabel, getTimeAxisLabel, getTimeRangeConfig, getXAxisFormatter, normalizeDowntimeMinutes } from '@/lib/time-range-config';
 import { ConnectionBadge, liveMetricValue } from '@/components/ConnectionBadge';
 import { ChartNoData } from '@/components/ChartNoData';
 import { useRealtimeStore } from '@/lib/realtime-store';
+import { buildTelemetryTrendForRange, buildTelemetryTrendWindow } from '@/lib/realtime-chart';
 import {
   buildRealtimeLiveChart,
   buildOeeByMachineChart,
@@ -85,6 +86,9 @@ const Dashboard = () => {
   const energyAnalytics = useEnergyAnalytics(energyQuery);
   const oeeAnalytics = useOeeAnalytics(oeeQuery);
   const localeKey = selectedLanguage === 'en' ? 'en' : 'vi';
+  const energyXAxisFormatter = useMemo(() => getXAxisFormatter(energyRange), [energyRange]);
+  const liveXAxisName = useMemo(() => getTimeAxisLabel('60s', localeKey), [localeKey]);
+  const energyXAxisName = useMemo(() => getTimeAxisLabel(energyRange, localeKey), [energyRange, localeKey]);
   const { isMachineLive, telemetrySeriesByMachineId } = useRealtimeStore();
 
   /** Dashboard-level helper: is a machine live? */
@@ -183,7 +187,6 @@ const Dashboard = () => {
   const energyRangeConfig = getTimeRangeConfig(energyRange);
   const powerRangeConfig = getTimeRangeConfig(powerRange);
   const downtimeRangeConfig = getTimeRangeConfig(downtimeRange);
-  const energyAxisLabels = buildTimeAxisLabels(energyRange, localeKey);
   const downtimeUnitLabel = getDowntimeUnitLabel(downtimeRange, localeKey);
   const energyUnitLabel = energyRangeConfig.energyUnit;
 
@@ -224,30 +227,16 @@ const Dashboard = () => {
 
   const energyTrendFromSse = useMemo(() => {
     if (energyTrendFromApi) return null;
-    const windowMs = energyRangeConfig.totalMinutes * 60 * 1000;
-    const fromMs = Date.now() - windowMs;
-    const allPoints: { ts: number; powerKw: number }[] = [];
-    for (const series of Object.values(telemetrySeriesByMachineId)) {
-      for (const p of series) {
-        const ts = new Date(p.timestamp).getTime();
-        if (ts >= fromMs && p.powerKw != null) {
-          allPoints.push({ ts, powerKw: p.powerKw });
-        }
-      }
-    }
-    if (allPoints.length === 0) return null;
-    const bucketCount = energyRangeConfig.pointCount;
-    const bucketSize = windowMs / bucketCount;
-    const buckets = Array.from({ length: bucketCount }, () => ({ sum: 0, count: 0 }));
-    for (const p of allPoints) {
-      const idx = Math.min(bucketCount - 1, Math.floor((p.ts - fromMs) / bucketSize));
-      buckets[idx].sum += p.powerKw;
-      buckets[idx].count += 1;
-    }
-    return buckets.map((b) => (b.count > 0 ? Math.round((b.sum / b.count) * 100) / 100 : null));
-  }, [energyTrendFromApi, telemetrySeriesByMachineId, energyRangeConfig.totalMinutes, energyRangeConfig.pointCount]);
+    return buildTelemetryTrendForRange({
+      seriesByMachineId: telemetrySeriesByMachineId,
+      range: energyRange,
+      locale: localeKey,
+      metricSelector: (point) => point.powerKw,
+      digits: 2,
+    });
+  }, [energyTrendFromApi, telemetrySeriesByMachineId, energyRange, localeKey]);
 
-  const energyTrendData = energyTrendFromApi ?? energyTrendFromSse;
+  const energyTrendData = energyTrendFromApi ?? energyTrendFromSse?.values;
   const hasEnergyTrendData = energyTrendData != null && energyTrendData.some((value) => value != null);
 
   const recentDowntimeEvents = events.filter((event) => {
@@ -258,50 +247,38 @@ const Dashboard = () => {
 
   // ─── §5.6 Live Trend Data (stock-chart style from SSE ring buffer) ───
   const livePowerTrend = useMemo(() => {
-    const windowMs = 60 * 1000;
-    const fromMs = Date.now() - windowMs;
-    const bucketCount = 60;
-    const bucketSize = windowMs / bucketCount;
-    const buckets: Array<{ ts: number; sum: number; count: number }> = Array.from(
-      { length: bucketCount }, (_, i) => ({ ts: fromMs + i * bucketSize, sum: 0, count: 0 }),
-    );
-    for (const series of Object.values(telemetrySeriesByMachineId)) {
-      for (const p of series) {
-        const ts = new Date(p.timestamp).getTime();
-        if (ts >= fromMs && p.powerKw != null) {
-          const idx = Math.min(bucketCount - 1, Math.floor((ts - fromMs) / bucketSize));
-          buckets[idx].sum += p.powerKw;
-          buckets[idx].count += 1;
-        }
-      }
-    }
-    const labels = buckets.map(b => { const d = new Date(b.ts); return `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}:${d.getSeconds().toString().padStart(2,'0')}`; });
-    const values = buckets.map(b => b.count > 0 ? Math.round((b.sum / b.count) * 100) / 100 : null);
-    return { labels, values, hasData: values.some(v => v != null) };
-  }, [telemetrySeriesByMachineId]);
+    const trend = buildTelemetryTrendWindow({
+      seriesByMachineId: telemetrySeriesByMachineId,
+      windowMs: 60 * 1000,
+      bucketCount: 60,
+      locale: localeKey,
+      metricSelector: (point) => point.powerKw,
+      digits: 2,
+      timeStyle: 'HH:mm:ss',
+    });
+    return {
+      labels: trend?.labels ?? [],
+      values: trend?.values ?? [],
+      hasData: !!trend?.values.some((value) => value != null),
+    };
+  }, [telemetrySeriesByMachineId, localeKey]);
 
   const liveOeeTrend = useMemo(() => {
-    const windowMs = 60 * 1000;
-    const fromMs = Date.now() - windowMs;
-    const bucketCount = 60;
-    const bucketSize = windowMs / bucketCount;
-    const buckets: Array<{ ts: number; sum: number; count: number }> = Array.from(
-      { length: bucketCount }, (_, i) => ({ ts: fromMs + i * bucketSize, sum: 0, count: 0 }),
-    );
-    for (const series of Object.values(telemetrySeriesByMachineId)) {
-      for (const p of series) {
-        const ts = new Date(p.timestamp).getTime();
-        if (ts >= fromMs && p.oee != null) {
-          const idx = Math.min(bucketCount - 1, Math.floor((ts - fromMs) / bucketSize));
-          buckets[idx].sum += p.oee;
-          buckets[idx].count += 1;
-        }
-      }
-    }
-    const labels = buckets.map(b => { const d = new Date(b.ts); return `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}:${d.getSeconds().toString().padStart(2,'0')}`; });
-    const values = buckets.map(b => b.count > 0 ? Math.round((b.sum / b.count) * 100) / 100 : null);
-    return { labels, values, hasData: values.some(v => v != null) };
-  }, [telemetrySeriesByMachineId]);
+    const trend = buildTelemetryTrendWindow({
+      seriesByMachineId: telemetrySeriesByMachineId,
+      windowMs: 60 * 1000,
+      bucketCount: 60,
+      locale: localeKey,
+      metricSelector: (point) => point.oee,
+      digits: 2,
+      timeStyle: 'HH:mm:ss',
+    });
+    return {
+      labels: trend?.labels ?? [],
+      values: trend?.values ?? [],
+      hasData: !!trend?.values.some((value) => value != null),
+    };
+  }, [telemetrySeriesByMachineId, localeKey]);
 
   // OEE by Machine chart - Stock style
   const oeeByMachineOption = buildOeeByMachineChart({
@@ -321,8 +298,8 @@ const Dashboard = () => {
   // Energy trend chart - Stock style
   const energyTrendOption = buildStockLineChart({
     xAxisData: energyAnalytics.trend.length > 0
-      ? energyAnalytics.trend.map((p) => getTrendPointLabel(p as Record<string, unknown>))
-      : energyAxisLabels,
+      ? energyAnalytics.trend.map((p) => energyXAxisFormatter(getTrendPointLabel(p as Record<string, unknown>)))
+      : energyTrendFromSse?.labels ?? [],
     series: [
       {
         name: selectedLanguage === 'vi' ? 'Năng lượng' : 'Energy',
@@ -332,6 +309,7 @@ const Dashboard = () => {
       },
     ],
     yAxisUnit: energyUnitLabel,
+    xAxisName: energyXAxisName,
   });
 
   const paretoReasonMap = recentDowntimeEvents
@@ -626,12 +604,13 @@ const Dashboard = () => {
           </div>
           <div className="h-52 min-w-0 overflow-hidden">
             {livePowerTrend.hasData ? (
-              <ReactECharts 
+              <StockChart
                 option={buildRealtimeLiveChart({
                   labels: livePowerTrend.labels,
                   values: livePowerTrend.values,
                   color: chartColors.success,
                   yAxisUnit: 'kW',
+                  xAxisName: liveXAxisName,
                 })} 
                 style={{ height: '100%', width: '100%' }} 
               />
@@ -658,7 +637,7 @@ const Dashboard = () => {
           </div>
           <div className="h-52 min-w-0 overflow-hidden">
             {liveOeeTrend.hasData ? (
-              <ReactECharts 
+              <StockChart
                 option={buildRealtimeLiveChart({
                   labels: liveOeeTrend.labels,
                   values: liveOeeTrend.values,
@@ -666,6 +645,7 @@ const Dashboard = () => {
                   yAxisUnit: '%',
                   yAxisMin: 0,
                   yAxisMax: 100,
+                  xAxisName: liveXAxisName,
                 })} 
                 style={{ height: '100%', width: '100%' }} 
               />
@@ -695,7 +675,7 @@ const Dashboard = () => {
           </div>
           <div className="h-64 min-w-0 overflow-hidden">
             {hasOeeChartData ? (
-              <ReactECharts option={oeeByMachineOption} style={{ height: '100%', width: '100%' }} />
+              <StockChart option={oeeByMachineOption} style={{ height: '100%', width: '100%' }} />
             ) : (
               <ChartNoData
                 title={selectedLanguage === 'vi' ? 'Chưa có dữ liệu OEE theo máy' : 'No OEE by-machine data'}
@@ -719,7 +699,7 @@ const Dashboard = () => {
           </div>
           <div className="h-64 min-w-0 overflow-hidden">
             {hasPowerPieData ? (
-              <ReactECharts option={powerPieOption} style={{ height: '100%', width: '100%' }} />
+              <StockChart option={powerPieOption} style={{ height: '100%', width: '100%' }} />
             ) : (
               <ChartNoData
                 title={selectedLanguage === 'vi' ? 'Chưa có dữ liệu phân bổ điện năng' : 'No power distribution data'}
@@ -738,7 +718,7 @@ const Dashboard = () => {
           </div>
           <div className="h-64 min-w-0 overflow-hidden">
             {hasEnergyTrendData ? (
-              <ReactECharts option={energyTrendOption} style={{ height: '100%', width: '100%' }} />
+              <StockChart option={energyTrendOption} style={{ height: '100%', width: '100%' }} />
             ) : (
               <ChartNoData
                 title={selectedLanguage === 'vi' ? 'Chưa có dữ liệu xu hướng năng lượng' : 'No energy trend data'}
@@ -755,7 +735,7 @@ const Dashboard = () => {
           </div>
           <div className="h-64 min-w-0 overflow-hidden">
             {hasDowntimeData ? (
-              <ReactECharts option={downtimeParetoOption} style={{ height: '100%', width: '100%' }} />
+              <StockChart option={downtimeParetoOption} style={{ height: '100%', width: '100%' }} />
             ) : (
               <ChartNoData
                 title={selectedLanguage === 'vi' ? 'Chưa có dữ liệu downtime' : 'No downtime data'}

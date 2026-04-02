@@ -59,6 +59,19 @@ const hexToRgba = (hex: string, alpha: number): string => {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 };
 
+const toTimeLabel = (value: string): string => {
+  const v = value.trim();
+  if (!v) return '';
+  const maybeIsoLike = /\d{4}-\d{2}-\d{2}/.test(v) || v.includes('T') || v.endsWith('Z');
+  if (!maybeIsoLike) return value;
+  const dt = new Date(v);
+  if (Number.isNaN(dt.getTime())) return value.replace(/Z$/i, '');
+  const hh = String(dt.getHours()).padStart(2, '0');
+  const mm = String(dt.getMinutes()).padStart(2, '0');
+  const ss = String(dt.getSeconds()).padStart(2, '0');
+  return `${hh}:${mm}:${ss}`;
+};
+
 export const gradients = {
   primary: createGradient(chartColors.primary),
   success: createGradient(chartColors.success),
@@ -76,6 +89,11 @@ export const baseChartOptions = {
   animation: true,
   animationDuration: 300,
   animationEasing: 'cubicOut' as const,
+  animationDurationUpdate: 180,
+  animationEasingUpdate: 'cubicOut' as const,
+  animationThreshold: 4000,
+  progressiveThreshold: 8000,
+  progressive: 3000,
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -143,11 +161,19 @@ export const stockXAxis = (
     showLabel?: boolean;
     interval?: number | 'auto';
     rotate?: number;
+    name?: string;
   }
 ) => ({
   type: 'category' as const,
   data,
   boundaryGap: false,
+  name: options?.name,
+  nameLocation: 'end' as const,
+  nameGap: 22,
+  nameTextStyle: {
+    color: chartColors.axisLabel,
+    fontSize: 10,
+  },
   axisLine: {
     show: true,
     lineStyle: { color: chartColors.axisLine },
@@ -161,6 +187,7 @@ export const stockXAxis = (
     fontSize: 10,
     interval: options?.interval ?? 'auto',
     rotate: options?.rotate ?? 0,
+    formatter: (value: unknown) => (typeof value === 'string' ? toTimeLabel(value) : String(value ?? '')),
   },
   splitLine: {
     show: true,
@@ -274,6 +301,9 @@ export const stockLineSeries = (
   type: 'line' as const,
   data,
   smooth: options?.smooth ?? true,
+  animationDurationUpdate: 180,
+  animationEasingUpdate: 'cubicOut' as const,
+  universalTransition: false,
   symbol: options?.showSymbol ? 'circle' : 'none',
   symbolSize: options?.symbolSize ?? 4,
   sampling: 'lttb' as const, // Largest-Triangle-Three-Buckets downsampling
@@ -402,6 +432,7 @@ export const stockLegend = (options?: {
  */
 export const buildStockLineChart = (config: {
   xAxisData: string[];
+  xAxisName?: string;
   series: Array<{
     name: string;
     data: (number | null | undefined)[];
@@ -419,7 +450,7 @@ export const buildStockLineChart = (config: {
   tooltip: stockTooltip(config.series[0]?.color ?? chartColors.primary),
   legend: stockLegend({ show: config.showLegend }),
   grid: stockGrid({ bottom: (config.showZoom ?? false) ? '20%' : '12%' }),
-  xAxis: stockXAxis(config.xAxisData),
+  xAxis: stockXAxis(config.xAxisData, { name: config.xAxisName }),
   yAxis: stockYAxis({
     unit: config.yAxisUnit,
     min: config.yAxisMin,
@@ -445,12 +476,19 @@ export const buildRealtimeLiveChart = (config: {
   yAxisMin?: number;
   yAxisMax?: number;
   title?: string;
+  xAxisName?: string;
 }) => ({
   ...baseChartOptions,
-  animationDuration: 100, // Fast animation for realtime
+  animationDuration: 120,
+  animationDurationUpdate: 120,
+  animationEasingUpdate: 'linear' as const,
   tooltip: stockTooltip(config.color),
   grid: stockGrid({ top: '12%', bottom: '10%' }),
-  xAxis: stockXAxis(config.labels, { showLabel: true, interval: Math.floor(config.labels.length / 6) }),
+  xAxis: stockXAxis(config.labels, {
+    showLabel: true,
+    interval: Math.floor(config.labels.length / 6),
+    name: config.xAxisName,
+  }),
   yAxis: stockYAxis({
     unit: config.yAxisUnit,
     min: config.yAxisMin,
@@ -470,6 +508,7 @@ export const buildRealtimeLiveChart = (config: {
  */
 export const buildOeeMultiLineChart = (config: {
   labels: string[];
+  xAxisName?: string;
   oeeData: (number | null | undefined)[];
   availabilityData: (number | null | undefined)[];
   performanceData: (number | null | undefined)[];
@@ -492,7 +531,7 @@ export const buildOeeMultiLineChart = (config: {
       ],
     }),
     grid: stockGrid({ top: '18%', bottom: (config.showZoom ?? false) ? '20%' : '12%' }),
-    xAxis: stockXAxis(config.labels),
+    xAxis: stockXAxis(config.labels, { name: config.xAxisName }),
     yAxis: stockYAxis({ unit: '%', min: 0, max: 100 }),
     dataZoom: stockDataZoom({ show: config.showZoom ?? false }),
     series: [

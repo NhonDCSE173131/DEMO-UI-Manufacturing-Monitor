@@ -6,14 +6,15 @@ import { useMachinesData } from '@/hooks/useMachinesData';
 import { useEnergyAnalytics } from '@/hooks/useEnergyAnalytics';
 import { formatNumber } from '@/lib/utils';
 import { Activity } from 'lucide-react';
-import ReactECharts from 'echarts-for-react';
+import { StockChart } from '@/components/StockChart';
 import enMessages from '@/locales/en.json';
 import viMessages from '@/locales/vi.json';
 import { TimeRangeSelector, TimeRange } from '@/components/TimeRangeSelector';
 import { useMemo, useState } from 'react';
-import { buildTimeAxisLabels, getTimeRangeConfig } from '@/lib/time-range-config';
+import { getTimeAxisLabel, getTimeRangeConfig, getXAxisFormatter } from '@/lib/time-range-config';
 import { ChartNoData } from '@/components/ChartNoData';
 import { legacyStatusFromDisplayState, resolveMachineDisplayState } from '@/lib/machine-presentation';
+import { buildTelemetryTrendForRange } from '@/lib/realtime-chart';
 import {
   buildPowerDonutChart,
   buildStockLineChart,
@@ -120,7 +121,8 @@ const EnergyPage = () => {
   const trendConfig = getTimeRangeConfig(trendRange);
   const distributionUnit = distributionConfig.energyUnit;
   const trendUnit = trendConfig.energyUnit;
-  const trendAxisLabels = buildTimeAxisLabels(trendRange, localeKey);
+  const trendXAxisFormatter = useMemo(() => getXAxisFormatter(trendRange), [trendRange]);
+  const trendXAxisName = useMemo(() => getTimeAxisLabel(trendRange, localeKey), [trendRange, localeKey]);
 
   const normalizeEnergyValue = (powerKw: number | undefined, range: TimeRange) => {
     const config = getTimeRangeConfig(range);
@@ -155,36 +157,22 @@ const EnergyPage = () => {
 
   const energyTrendFromSse = useMemo(() => {
     if (energyTrendFromApi) return null;
-    const windowMs = trendConfig.totalMinutes * 60 * 1000;
-    const fromMs = Date.now() - windowMs;
-    const allPoints: { ts: number; powerKw: number }[] = [];
-    for (const series of Object.values(telemetrySeriesByMachineId)) {
-      for (const p of series) {
-        const ts = new Date(p.timestamp).getTime();
-        if (ts >= fromMs && p.powerKw != null) {
-          allPoints.push({ ts, powerKw: p.powerKw });
-        }
-      }
-    }
-    if (allPoints.length === 0) return null;
-    const bucketCount = trendConfig.pointCount;
-    const bucketSize = windowMs / bucketCount;
-    const buckets = Array.from({ length: bucketCount }, () => ({ sum: 0, count: 0 }));
-    for (const p of allPoints) {
-      const idx = Math.min(bucketCount - 1, Math.floor((p.ts - fromMs) / bucketSize));
-      buckets[idx].sum += p.powerKw;
-      buckets[idx].count += 1;
-    }
-    return buckets.map((b) => (b.count > 0 ? Math.round((b.sum / b.count) * 100) / 100 : null));
-  }, [energyTrendFromApi, telemetrySeriesByMachineId, trendConfig.totalMinutes, trendConfig.pointCount]);
+    return buildTelemetryTrendForRange({
+      seriesByMachineId: telemetrySeriesByMachineId,
+      range: trendRange,
+      locale: localeKey,
+      metricSelector: (point) => point.powerKw,
+      digits: 2,
+    });
+  }, [energyTrendFromApi, telemetrySeriesByMachineId, trendRange, localeKey]);
 
-  const energyTrendData = energyTrendFromApi ?? energyTrendFromSse;
+  const energyTrendData = energyTrendFromApi ?? energyTrendFromSse?.values;
   const hasEnergyTrendData = energyTrendData != null && energyTrendData.some((value) => value != null);
 
   // Energy trend chart - Stock style
-  const energyTrendAxisLabels = trendAnalytics.trend.length > 0 
-    ? trendAnalytics.trend.map((p) => getTrendPointLabel(p as Record<string, unknown>)) 
-    : trendAxisLabels;
+  const energyTrendAxisLabels = trendAnalytics.trend.length > 0
+    ? trendAnalytics.trend.map((p) => trendXAxisFormatter(getTrendPointLabel(p as Record<string, unknown>)))
+    : energyTrendFromSse?.labels ?? [];
     
   const energyTrendOption = buildStockLineChart({
     xAxisData: energyTrendAxisLabels,
@@ -197,6 +185,7 @@ const EnergyPage = () => {
       },
     ],
     yAxisUnit: trendUnit,
+    xAxisName: trendXAxisName,
   });
 
   const areaConsumption = trendAnalytics.byArea.length > 0
@@ -282,7 +271,7 @@ const EnergyPage = () => {
             <TimeRangeSelector value={distributionRange} onChange={setDistributionRange} showLabel={false} />
           </div>
           <div className="flex-1 min-h-[280px] mt-2 min-w-0 overflow-hidden">
-            <ReactECharts option={pieChartOption} style={{ height: '100%', width: '100%' }} />
+            <StockChart option={pieChartOption} style={{ height: '100%', width: '100%' }} />
           </div>
         </div>
       </div>
@@ -295,7 +284,7 @@ const EnergyPage = () => {
           </div>
           <div className="h-64 min-w-0 overflow-hidden">
             {hasEnergyTrendData ? (
-              <ReactECharts option={energyTrendOption} style={{ height: '100%', width: '100%' }} />
+              <StockChart option={energyTrendOption} style={{ height: '100%', width: '100%' }} />
             ) : (
               <ChartNoData
                 title={selectedLanguage === 'vi' ? 'Chưa có dữ liệu xu hướng điện năng' : 'No energy trend data'}

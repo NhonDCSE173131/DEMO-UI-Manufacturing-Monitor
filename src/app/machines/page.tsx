@@ -9,11 +9,11 @@ import { machinesApi } from '@/lib/api/machines';
 import { formatNumber, formatDateTime, getHealthScore } from '@/lib/utils';
 import type { MachineHistoryQuery } from '@/types/api';
 import { Thermometer, Zap, Activity, Clock, Cpu, BarChart3, TrendingUp, Package, AlertTriangle, X, WifiOff } from 'lucide-react';
-import ReactECharts from 'echarts-for-react';
+import { StockChart } from '@/components/StockChart';
 import enMessages from '@/locales/en.json';
 import viMessages from '@/locales/vi.json';
 import { TimeRangeSelector, TimeRange } from '@/components/TimeRangeSelector';
-import { getTimeRangeConfig } from '@/lib/time-range-config';
+import { getTimeAxisLabel, getTimeRangeConfig, getXAxisFormatter } from '@/lib/time-range-config';
 import { useRealtimeStore, type TelemetryPoint } from '@/lib/realtime-store';
 import { ConnectionBadge, liveMetricValue } from '@/components/ConnectionBadge';
 import { ChartNoData } from '@/components/ChartNoData';
@@ -135,6 +135,11 @@ function MachineDetailContent() {
 
   const selectedMachine = machines.find(m => m.id === selectedMachineId) || machines[0];
   const messages = selectedLanguage === 'en' ? enMessages : viMessages;
+  const localeKey = selectedLanguage === 'en' ? 'en' : 'vi';
+  const oeeXAxisFormatter = useMemo(() => getXAxisFormatter(timeRange), [timeRange]);
+  const metricXAxisFormatter = useMemo(() => getXAxisFormatter(metricRange), [metricRange]);
+  const oeeXAxisName = useMemo(() => getTimeAxisLabel(timeRange, localeKey), [timeRange, localeKey]);
+  const metricXAxisName = useMemo(() => getTimeAxisLabel(metricRange, localeKey), [metricRange, localeKey]);
 
   // Display state: ưu tiên theo BE (`displayState`) rồi mới fallback.
   const resolvedDisplayState = normalizeDisplayState(selectedMachine);
@@ -302,10 +307,7 @@ function MachineDetailContent() {
   }
 
   // OEE multi-line chart - Stock style
-  const oeeChartLabels = realtimeHistory.map(h => {
-    const time = formatDateTime(h.timestamp).split(' ')[1] || '';
-    return time.length > 5 ? time.slice(0, 5) : time;
-  });
+  const oeeChartLabels = realtimeHistory.map((h) => oeeXAxisFormatter(h.timestamp));
   
   const oeeChartOptions = buildOeeMultiLineChart({
     labels: oeeChartLabels,
@@ -316,6 +318,7 @@ function MachineDetailContent() {
     showTarget: true,
     targetValue: 85,
     locale: selectedLanguage === 'en' ? 'en' : 'vi',
+    xAxisName: oeeXAxisName,
   });
 
   const getMetricPointValue = (point: TelemetryPoint, metricKey: MetricKey): number | undefined => {
@@ -336,10 +339,7 @@ function MachineDetailContent() {
   const metricSeriesValues = (metricKey: MetricKey) => metricHistory.map((h) => getMetricPointValue(h, metricKey) ?? null);
 
   // Metric chart - Stock style
-  const metricChartLabels = metricHistory.map(h => {
-    const time = formatDateTime(h.timestamp).split(' ')[1] || '';
-    return time.length > 5 ? time.slice(0, 5) : time;
-  });
+  const metricChartLabels = metricHistory.map((h) => metricXAxisFormatter(h.timestamp));
 
   const getMetricChartOptions = (metricKey: MetricKey, color: string, name: string) =>
     buildStockLineChart({
@@ -353,6 +353,7 @@ function MachineDetailContent() {
         },
       ],
       yAxisMin: 'dataMin',
+      xAxisName: metricXAxisName,
     });
 
   const allMetrics: Array<{ key: MetricKey; label: string; unit: string; color: string; value: number | undefined }> = [
@@ -827,7 +828,7 @@ function MachineDetailContent() {
               </div>
               <div className="bg-[#111] p-1 rounded-lg h-full border border-[#333] min-w-0 overflow-hidden">
                   {realtimeHistory.length > 0 ? (
-                    <ReactECharts option={oeeChartOptions} style={{height: '100%', width: '100%'}} />
+                    <StockChart option={oeeChartOptions} style={{height: '100%', width: '100%'}} />
                   ) : (
                     <ChartNoData
                       title={selectedLanguage === 'vi' ? 'Chưa có dữ liệu OEE' : 'No OEE data'}
@@ -1023,7 +1024,7 @@ function MachineDetailContent() {
                   
                    <div className="flex-1 min-h-0 border border-[#333] relative min-w-0 overflow-hidden">
                      {metricHistory.length > 0 ? (
-                       <ReactECharts option={getMetricChartOptions(activeMetricObj.key, activeMetricObj.color, activeMetricObj.label)} style={{height: '100%', width: '100%'}} />
+                       <StockChart option={getMetricChartOptions(activeMetricObj.key, activeMetricObj.color, activeMetricObj.label)} style={{height: '100%', width: '100%'}} />
                      ) : (
                        <ChartNoData
                          title={selectedLanguage === 'vi' ? 'Chưa có dữ liệu' : 'No data available'}
