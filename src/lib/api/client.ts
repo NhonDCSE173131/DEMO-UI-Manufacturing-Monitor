@@ -62,7 +62,11 @@ const request = async <T>(path: string, init: ApiRequestInit = {}): Promise<T> =
     if (error instanceof AppError) {
       throw error;
     }
-    throw new AppError('Khong ket noi duoc may chu', 'NETWORK_ERROR');
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new AppError(`Yeu cau toi may chu bi timeout (${appEnv.apiBaseUrl})`, 'NETWORK_ERROR');
+    }
+
+    throw new AppError(`Khong ket noi duoc may chu (${appEnv.apiBaseUrl})`, 'NETWORK_ERROR');
   }
 };
 
@@ -70,8 +74,11 @@ export const apiClient = {
   get: <T>(path: string, init?: ApiRequestInit) => request<T>(path, { method: 'GET', ...init }),
   post: <T>(path: string, body?: unknown, init?: ApiRequestInit) =>
     request<T>(path, { method: 'POST', body: body ? JSON.stringify(body) : undefined, ...init }),
+  put: <T>(path: string, body?: unknown, init?: ApiRequestInit) =>
+    request<T>(path, { method: 'PUT', body: body ? JSON.stringify(body) : undefined, ...init }),
   patch: <T>(path: string, body?: unknown, init?: ApiRequestInit) =>
     request<T>(path, { method: 'PATCH', body: body ? JSON.stringify(body) : undefined, ...init }),
+  delete: <T>(path: string, init?: ApiRequestInit) => request<T>(path, { method: 'DELETE', ...init }),
   getRaw: async (path: string, init: ApiRequestInit = {}) => {
     const { timeoutMs = DEFAULT_TIMEOUT_MS, ...restInit } = init;
     const controller = new AbortController();

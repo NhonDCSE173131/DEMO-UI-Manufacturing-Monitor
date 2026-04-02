@@ -1,0 +1,39 @@
+[
+  {
+    "machineCode": "M01",
+    "machineName": "Easy521 Machine 01",
+    "protocol": "modbus-tcp",
+    "host": "192.168.1.100",
+    "port": 502,
+    "profileCode": "EASY521_STD",
+    "description": "Machine in line 1"
+  },
+  {
+    "machineCode": "M02",
+    "machineName": "Easy521 Machine 02",
+    "protocol": "modbus-tcp",
+    "host": "192.168.1.101",
+    "port": 502,
+    "profileCode": "EASY521_STD",
+    "description": "Machine in line 2"
+  },
+  {
+    "machineCode": "M03",
+    "machineName": "Robot Welding Unit",
+    "protocol": "opc-ua",
+    "host": "192.168.1.102",
+    "port": 4840,
+    "profileCode": "ROBOT_PROFILE",
+    "description": "ABB Robot for welding"
+  },
+  {
+    "machineCode": "M04",
+    "machineName": "CNC Milling Center",
+    "protocol": "modbus-tcp",
+    "host": "192.168.1.103",
+    "port": 502,
+    "profileCode": "CNC_PROFILE",
+    "description": "Milling machine"
+  }
+]
+

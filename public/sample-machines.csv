@@ -1,0 +1,6 @@
+machineCode,machineName,protocol,host,port,profileCode,description
+M01,Easy521 Machine 01,modbus-tcp,192.168.1.100,502,EASY521_STD,Machine in line 1
+M02,Easy521 Machine 02,modbus-tcp,192.168.1.101,502,EASY521_STD,Machine in line 2
+M03,Robot Welding Unit,opc-ua,192.168.1.102,4840,ROBOT_PROFILE,ABB Robot for welding
+M04,CNC Milling Center,modbus-tcp,192.168.1.103,502,CNC_PROFILE,Milling machine
+
