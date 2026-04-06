@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { X, Upload, AlertCircle } from 'lucide-react';
 import { useMachineImport } from '@/hooks/useMachineImport';
-import type { ImportMachineRow, ImportMode } from '@/types/machine-config';
+import type { ImportEntityType, ImportExecutionSummary, MachineImportMode } from '@/types/machine-import';
 import { useMachineStore } from '@/lib/store';
 import enMessages from '@/locales/en.json';
 import viMessages from '@/locales/vi.json';
@@ -11,23 +11,48 @@ import viMessages from '@/locales/vi.json';
 interface ImportMachineDrawerProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (rows: ImportMachineRow[], mode: ImportMode, file: File) => Promise<void>;
+  onImported?: (type: ImportEntityType, result: ImportExecutionSummary) => Promise<void> | void;
   isLoading?: boolean;
+  initialImportType?: ImportEntityType;
+  lockImportType?: boolean;
 }
 
 type Step = 'upload' | 'preview' | 'confirm';
 
-export function ImportMachineDrawer({ isOpen, onClose, onSubmit, isLoading = false }: ImportMachineDrawerProps) {
+export function ImportMachineDrawer({
+  isOpen,
+  onClose,
+  onImported,
+  isLoading = false,
+  initialImportType = 'machines',
+  lockImportType = false,
+}: ImportMachineDrawerProps) {
   const { selectedLanguage } = useMachineStore();
   const messages = selectedLanguage === 'en' ? enMessages : viMessages;
   const t = messages.machineManagement;
+
   const [step, setStep] = useState<Step>('upload');
   const [file, setFile] = useState<File | null>(null);
-  const [importMode, setImportMode] = useState<ImportMode>('create-only');
+  const [importType, setImportType] = useState<ImportEntityType>(initialImportType);
+  const [importMode, setImportMode] = useState<MachineImportMode>('CREATE_ONLY');
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [infoMessage, setInfoMessage] = useState<string | null>(null);
 
-  const { importRows, setImportRows, parseFile } = useMachineImport();
+  const {
+    preview,
+    setPreview,
+    validationResult,
+    setValidationResult,
+    isLoading: hookLoading,
+    parseFile,
+    validateImport,
+    submitImport,
+  } = useMachineImport();
+
+  useEffect(() => {
+    setImportType(initialImportType);
+  }, [initialImportType, isOpen]);
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
@@ -35,55 +60,59 @@ export function ImportMachineDrawer({ isOpen, onClose, onSubmit, isLoading = fal
 
     setFile(selectedFile);
     setSubmitError(null);
+    setValidationResult(null);
 
-    // Parse file
-    const result = await parseFile(selectedFile);
-
+    const result = await parseFile(selectedFile, importType);
     if (result.errors.length > 0) {
       setSubmitError(result.errors.join('; '));
       return;
     }
 
-    setImportRows(result.rows);
+    setPreview(result.preview);
     setStep('preview');
   };
 
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.currentTarget.classList.add('bg-blue-50', 'dark:bg-blue-900/20', 'border-blue-400');
-  };
+  const handleValidate = async () => {
+    if (!file) return;
 
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.currentTarget.classList.remove('bg-blue-50', 'dark:bg-blue-900/20', 'border-blue-400');
-  };
-
-  const handleDrop = async (e: React.DragEvent) => {
-    e.preventDefault();
-    e.currentTarget.classList.remove('bg-blue-50', 'dark:bg-blue-900/20', 'border-blue-400');
-
-    const droppedFile = e.dataTransfer.files?.[0];
-    if (!droppedFile) return;
-
-    setFile(droppedFile);
-    setSubmitError(null);
-
-    const result = await parseFile(droppedFile);
-    if (result.errors.length > 0) {
-      setSubmitError(result.errors.join('; '));
+    // Some BE versions only support MACHINE dry-run validation.
+    if (importType !== 'machines') {
+      setValidationResult({
+        totalRows: preview?.totalRows || 0,
+        validRows: preview?.totalRows || 0,
+        invalidRows: 0,
+        errors: [],
+      });
+      setInfoMessage(selectedLanguage === 'vi'
+        ? 'Dry-run chi ho tro import may tren BE hien tai. Co the tiep tuc import.'
+        : 'Dry-run is currently supported for machine import only. You can continue importing.');
+      setStep('confirm');
       return;
     }
 
-    setImportRows(result.rows);
-    setStep('preview');
-  };
-
-  const handleContinue = () => {
-    const validRows = importRows.filter((r) => r.isValid);
-    if (validRows.length === 0) {
-      setSubmitError(t.validation.noValidRows);
-      return;
+    try {
+      setSubmitError(null);
+      setInfoMessage(null);
+      await validateImport(file, importType);
+      setStep('confirm');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : t.errors.importFailed;
+      // Fallback to local preview summary when BE rejects import type for validate endpoint.
+      if (message.toLowerCase().includes('unsupported import type')) {
+        setValidationResult({
+          totalRows: preview?.totalRows || 0,
+          validRows: preview?.totalRows || 0,
+          invalidRows: 0,
+          errors: [],
+        });
+        setInfoMessage(selectedLanguage === 'vi'
+          ? 'BE khong ho tro dry-run cho loai import nay. Da chuyen sang xac nhan import.'
+          : 'Backend does not support dry-run for this import type. Switched to confirm import.');
+        setStep('confirm');
+        return;
+      }
+      setSubmitError(message);
     }
-    setStep('confirm');
   };
 
   const handleSubmit = async () => {
@@ -91,17 +120,13 @@ export function ImportMachineDrawer({ isOpen, onClose, onSubmit, isLoading = fal
 
     try {
       setSubmitError(null);
-      await onSubmit(importRows, importMode, file);
+      const result = await submitImport(file, importType, importMode);
+      await onImported?.(importType, result);
       setSuccessMessage(t.import.success);
 
-      // Reset after 2 seconds
       setTimeout(() => {
-        setStep('upload');
-        setFile(null);
-        setImportRows([]);
-        setSuccessMessage(null);
-        onClose();
-      }, 2000);
+        handleClose();
+      }, 1200);
     } catch (err) {
       const message = err instanceof Error ? err.message : t.errors.importFailed;
       setSubmitError(message);
@@ -111,33 +136,30 @@ export function ImportMachineDrawer({ isOpen, onClose, onSubmit, isLoading = fal
   const handleClose = () => {
     setStep('upload');
     setFile(null);
-    setImportRows([]);
+    setPreview(null);
+    setValidationResult(null);
     setSubmitError(null);
     setSuccessMessage(null);
+    setInfoMessage(null);
     onClose();
   };
 
   if (!isOpen) return null;
 
-  const validCount = importRows.filter((r) => r.isValid).length;
-  const invalidCount = importRows.filter((r) => !r.isValid).length;
-  const totalCount = importRows.length;
+  const totalPreviewRows = preview?.totalRows || 0;
 
   return (
     <>
-      {/* Overlay */}
       <div className="fixed inset-0 bg-black bg-opacity-50 z-40 transition-opacity" onClick={handleClose} />
 
-      {/* Drawer */}
       <div className="fixed right-0 top-0 bottom-0 w-full max-w-2xl bg-white dark:bg-gray-800 shadow-lg z-50 flex flex-col animate-in slide-in-from-right">
-        {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
           <div>
             <h2 className="text-xl font-bold text-gray-900 dark:text-white">{t.drawer.importTitle}</h2>
             <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-              {step === 'upload' && t.drawer.importUploadDesc}
-              {step === 'preview' && t.drawer.importPreviewDesc}
-              {step === 'confirm' && t.drawer.importConfirmDesc}
+              {step === 'upload' && (selectedLanguage === 'vi' ? 'Chon loai import va file CSV' : 'Choose import type and CSV file')}
+              {step === 'preview' && (selectedLanguage === 'vi' ? 'Xem du lieu va goi validate dry-run' : 'Preview data and run dry-run validation')}
+              {step === 'confirm' && (selectedLanguage === 'vi' ? 'Xac nhan import vao he thong' : 'Confirm import to system')}
             </p>
           </div>
           <button onClick={handleClose} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors">
@@ -145,7 +167,6 @@ export function ImportMachineDrawer({ isOpen, onClose, onSubmit, isLoading = fal
           </button>
         </div>
 
-        {/* Content */}
         <div className="flex-1 overflow-y-auto p-6">
           {submitError && (
             <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900 rounded-lg">
@@ -162,177 +183,154 @@ export function ImportMachineDrawer({ isOpen, onClose, onSubmit, isLoading = fal
             </div>
           )}
 
-          {/* Step 1: Upload */}
+          {infoMessage && (
+            <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-900 rounded-lg">
+              <p className="text-sm font-medium text-blue-900 dark:text-blue-100">{infoMessage}</p>
+            </div>
+          )}
+
           {step === 'upload' && (
-            <div className="space-y-6">
-              <div
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
-                className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-12 text-center transition-colors cursor-pointer hover:border-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20"
-              >
+            <div className="space-y-5">
+              {!lockImportType && (
+              <div>
+                <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
+                  {selectedLanguage === 'vi' ? 'Loai import' : 'Import type'}
+                </label>
+                <select
+                  value={importType}
+                  onChange={(e) => setImportType(e.target.value as ImportEntityType)}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700"
+                >
+                  <option value="machines">Machines CSV</option>
+                  <option value="profiles">Profiles CSV</option>
+                  <option value="mappings">Mappings CSV</option>
+                </select>
+              </div>
+              )}
+
+              {importType === 'machines' && (
+                <div>
+                  <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
+                    {selectedLanguage === 'vi' ? 'Che do import may' : 'Machine import mode'}
+                  </label>
+                  <select
+                    value={importMode}
+                    onChange={(e) => setImportMode(e.target.value as MachineImportMode)}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700"
+                  >
+                    <option value="CREATE_ONLY">CREATE_ONLY</option>
+                    <option value="UPSERT">UPSERT</option>
+                  </select>
+                </div>
+              )}
+
+              <div className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-10 text-center">
                 <Upload size={32} className="mx-auto text-gray-400 mb-4" />
-                <p className="text-lg font-medium text-gray-900 dark:text-white mb-2">{t.import.dragDrop}</p>
-                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">{t.import.or}</p>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">{selectedLanguage === 'vi' ? 'Chi ho tro file CSV' : 'CSV files only'}</p>
                 <label className="inline-block px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium cursor-pointer">
                   {t.actions.chooseFile}
-                  <input type="file" accept=".csv,.json" onChange={handleFileSelect} className="hidden" />
+                  <input type="file" accept=".csv" onChange={handleFileSelect} className="hidden" />
                 </label>
-              </div>
-
-              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-900 rounded-lg p-4">
-                <h4 className="font-semibold text-blue-900 dark:text-blue-100 mb-2">{t.import.supportedFormats}</h4>
-                <ul className="text-sm text-blue-800 dark:text-blue-200 space-y-1">
-                  <li>• <strong>CSV</strong>: {t.import.csvHelp}</li>
-                  <li>• <strong>JSON</strong>: {t.import.jsonHelp}</li>
-                </ul>
               </div>
             </div>
           )}
 
-          {/* Step 2: Preview */}
-          {step === 'preview' && (
-            <div className="space-y-6">
-              {/* Summary */}
-              <div className="grid grid-cols-3 gap-4">
+          {step === 'preview' && preview && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
                 <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4">
-                  <p className="text-sm font-medium text-gray-600 dark:text-gray-400">{t.import.totalRows}</p>
-                  <p className="text-2xl font-bold text-gray-900 dark:text-white">{totalCount}</p>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">{t.import.totalRows}</p>
+                  <p className="text-2xl font-bold text-gray-900 dark:text-white">{totalPreviewRows}</p>
                 </div>
-                <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-4">
-                  <p className="text-sm font-medium text-green-700 dark:text-green-400">{t.import.validRows}</p>
-                  <p className="text-2xl font-bold text-green-900 dark:text-green-100">{validCount}</p>
-                </div>
-                <div className="bg-red-50 dark:bg-red-900/20 rounded-lg p-4">
-                  <p className="text-sm font-medium text-red-700 dark:text-red-400">{t.import.invalidRows}</p>
-                  <p className="text-2xl font-bold text-red-900 dark:text-red-100">{invalidCount}</p>
+                <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4">
+                  <p className="text-sm text-gray-600 dark:text-gray-400">Headers</p>
+                  <p className="text-sm font-mono text-gray-900 dark:text-white">{preview.headers.join(', ')}</p>
                 </div>
               </div>
 
-              {/* Preview Table */}
-              <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg overflow-hidden">
-                <div className="overflow-x-auto">
+              <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+                <div className="max-h-[420px] overflow-auto">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="border-b border-gray-200 dark:border-gray-600 bg-gray-100 dark:bg-gray-600">
-                        <th className="px-4 py-2 text-left font-semibold text-gray-700 dark:text-gray-300">{t.import.rowNumber}</th>
-                        <th className="px-4 py-2 text-left font-semibold text-gray-700 dark:text-gray-300">{t.table.machineCode}</th>
-                        <th className="px-4 py-2 text-left font-semibold text-gray-700 dark:text-gray-300">{t.table.host}</th>
-                        <th className="px-4 py-2 text-left font-semibold text-gray-700 dark:text-gray-300">{t.table.protocol}</th>
-                        <th className="px-4 py-2 text-left font-semibold text-gray-700 dark:text-gray-300">{t.import.status}</th>
+                      <tr className="bg-gray-100 dark:bg-gray-700">
+                        <th className="px-3 py-2 text-left sticky top-0 bg-gray-100 dark:bg-gray-700">#</th>
+                        {preview.headers.slice(0, 6).map((header) => (
+                          <th key={header} className="px-3 py-2 text-left sticky top-0 bg-gray-100 dark:bg-gray-700">{header}</th>
+                        ))}
                       </tr>
                     </thead>
                     <tbody>
-                      {importRows.slice(0, 10).map((row) => (
-                        <tr key={row.rowIndex} className="border-b border-gray-200 dark:border-gray-600">
-                          <td className="px-4 py-2 text-gray-900 dark:text-gray-100">{row.rowIndex}</td>
-                          <td className="px-4 py-2 font-mono text-gray-900 dark:text-gray-100">{row.machineCode}</td>
-                          <td className="px-4 py-2 text-gray-600 dark:text-gray-400">{row.host}</td>
-                          <td className="px-4 py-2 text-gray-600 dark:text-gray-400">{row.protocol}</td>
-                          <td className="px-4 py-2">
-                            {row.isValid ? (
-                              <span className="inline-block px-2 py-1 bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-100 text-xs font-medium rounded">
-                                {t.import.validRows}
-                              </span>
-                            ) : (
-                              <span className="inline-block px-2 py-1 bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-100 text-xs font-medium rounded">
-                                {t.import.error}
-                              </span>
-                            )}
-                          </td>
+                      {preview.rows.map((row, index) => (
+                        <tr key={`${index}-${row[0] || ''}`} className="border-t border-gray-200 dark:border-gray-700">
+                          <td className="px-3 py-2">{index + 1}</td>
+                          {row.slice(0, 6).map((value, cellIndex) => (
+                            <td key={`${index}-${cellIndex}`} className="px-3 py-2">{value}</td>
+                          ))}
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
               </div>
-
-              {totalCount > 10 && (
-                <p className="text-sm text-gray-600 dark:text-gray-400 text-center">
-                  {t.import.moreRows.replace('{{count}}', String(totalCount - 10))}
-                </p>
-              )}
             </div>
           )}
 
-          {/* Step 3: Confirm */}
-          {step === 'confirm' && (
-            <div className="space-y-6">
-              <div className="space-y-4">
-                <h3 className="font-semibold text-gray-900 dark:text-white">{t.import.importMode}</h3>
-                <div className="space-y-3">
-                  <label className="flex items-center gap-3 p-3 border border-gray-200 dark:border-gray-700 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                    <input
-                      type="radio"
-                      name="importMode"
-                      value="create-only"
-                      checked={importMode === 'create-only'}
-                      onChange={(e) => setImportMode(e.target.value as ImportMode)}
-                      className="w-4 h-4"
-                    />
-                    <div>
-                      <p className="font-medium text-gray-900 dark:text-white">{t.import.createOnly}</p>
-                      <p className="text-sm text-gray-600 dark:text-gray-400">{t.import.createOnlyDesc}</p>
-                    </div>
-                  </label>
-
-                  <label className="flex items-center gap-3 p-3 border border-gray-200 dark:border-gray-700 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                    <input
-                      type="radio"
-                      name="importMode"
-                      value="upsert"
-                      checked={importMode === 'upsert'}
-                      onChange={(e) => setImportMode(e.target.value as ImportMode)}
-                      className="w-4 h-4"
-                    />
-                    <div>
-                      <p className="font-medium text-gray-900 dark:text-white">{t.import.upsert}</p>
-                      <p className="text-sm text-gray-600 dark:text-gray-400">{t.import.upsertDesc}</p>
-                    </div>
-                  </label>
+          {step === 'confirm' && validationResult && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-3 gap-4">
+                <div className="rounded-lg p-4 bg-gray-50 dark:bg-gray-700/40">
+                  <p className="text-xs text-gray-500">{t.import.totalRows}</p>
+                  <p className="text-xl font-semibold">{validationResult.totalRows}</p>
+                </div>
+                <div className="rounded-lg p-4 bg-green-50 dark:bg-green-900/20">
+                  <p className="text-xs text-green-700">{t.import.validRows}</p>
+                  <p className="text-xl font-semibold text-green-800 dark:text-green-100">{validationResult.validRows}</p>
+                </div>
+                <div className="rounded-lg p-4 bg-red-50 dark:bg-red-900/20">
+                  <p className="text-xs text-red-700">{t.import.invalidRows}</p>
+                  <p className="text-xl font-semibold text-red-800 dark:text-red-100">{validationResult.invalidRows}</p>
                 </div>
               </div>
 
-              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-900 rounded-lg p-4">
-                <p className="text-sm font-medium text-blue-900 dark:text-blue-100">
-                  {t.import.willImport
-                    .replace('{{count}}', String(validCount))
-                    .replace('{{mode}}', importMode === 'create-only' ? t.import.modeCreateOnly : t.import.modeUpsert)}
-                </p>
-              </div>
+              {validationResult.errors.length > 0 && (
+                <div className="rounded-lg border border-red-200 dark:border-red-900 p-3 max-h-48 overflow-auto text-sm">
+                  {validationResult.errors.slice(0, 10).map((error) => (
+                    <p key={`${error.rowIndex}-${error.message}`} className="text-red-700 dark:text-red-300">
+                      Row {error.rowIndex}: {error.message}
+                    </p>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
 
-        {/* Footer */}
         <div className="border-t border-gray-200 dark:border-gray-700 p-6 flex gap-3">
           <button
             onClick={handleClose}
-            disabled={isLoading}
-            className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
+            disabled={isLoading || hookLoading}
+            className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg"
           >
             {t.actions.cancel}
           </button>
 
-          {step === 'upload' && <div className="flex-1" />}
-
           {step === 'preview' && (
             <button
-              onClick={handleContinue}
-              disabled={isLoading || validCount === 0}
-              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
+              onClick={handleValidate}
+              disabled={isLoading || hookLoading || !file}
+              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg disabled:opacity-50"
             >
-              {t.actions.continue}
+              {selectedLanguage === 'vi' ? 'Validate dry-run' : 'Validate dry-run'}
             </button>
           )}
 
           {step === 'confirm' && (
             <button
               onClick={handleSubmit}
-              disabled={isLoading}
-              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
+              disabled={isLoading || hookLoading || !file}
+              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg disabled:opacity-50"
             >
-              {isLoading ? t.import.importing : t.actions.confirmImport}
+              {isLoading || hookLoading ? t.import.importing : t.actions.confirmImport}
             </button>
           )}
         </div>

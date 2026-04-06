@@ -1,11 +1,13 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
 import { MachineForm } from './MachineForm';
 import { MachineConfirmCard } from './MachineConfirmCard';
+import { ImportMachineDrawer } from './ImportMachineDrawer';
 import { normalizeMachineConfigInput } from '@/lib/machine-config-normalizer';
-import type { MachineConfigForm, CreateMachinePayload, MachineProfileResponse } from '@/types/machine-config';
+import type { CreateMachineProfilePayload, MachineConfigForm, CreateMachinePayload, MachineProfileResponse } from '@/types/machine-config';
+import type { ImportEntityType, ImportExecutionSummary } from '@/types/machine-import';
 import { useMachineStore } from '@/lib/store';
 import enMessages from '@/locales/en.json';
 import viMessages from '@/locales/vi.json';
@@ -17,19 +19,37 @@ interface AddMachineDrawerProps {
   onClose: () => void;
   onSubmit: (data: CreateMachinePayload) => Promise<void>;
   profiles: MachineProfileResponse[];
+  onImported?: (type: ImportEntityType, result: ImportExecutionSummary) => Promise<void> | void;
+  onCreateProfile?: (payload: CreateMachineProfilePayload) => Promise<MachineProfileResponse | void>;
   isLoading?: boolean;
 }
 
-export function AddMachineDrawer({ isOpen, onClose, onSubmit, profiles, isLoading = false }: AddMachineDrawerProps) {
+export function AddMachineDrawer({
+  isOpen,
+  onClose,
+  onSubmit,
+  profiles,
+  onImported,
+  onCreateProfile,
+  isLoading = false,
+}: AddMachineDrawerProps) {
   const { selectedLanguage } = useMachineStore();
   const messages = selectedLanguage === 'en' ? enMessages : viMessages;
   const t = messages.machineManagement;
   const [step, setStep] = useState<Step>('form');
   const [normalizedData, setNormalizedData] = useState<CreateMachinePayload | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [preferredProfileId, setPreferredProfileId] = useState<string>('');
+  const [shouldAutoSelectNewestProfile, setShouldAutoSelectNewestProfile] = useState(false);
+  const [isQuickImportOpen, setIsQuickImportOpen] = useState(false);
+  const [quickImportType, setQuickImportType] = useState<ImportEntityType>('profiles');
 
   const handleFormSubmit = (data: MachineConfigForm) => {
     const normalized = normalizeMachineConfigInput(data);
+    const matchedProfile = profiles.find((profile) => profile.id === normalized.profileId);
+    if (matchedProfile) {
+      normalized.profileCode = matchedProfile.profileCode;
+    }
     setNormalizedData(normalized);
     setSubmitError(null);
     setStep('confirm');
@@ -59,10 +79,46 @@ export function AddMachineDrawer({ isOpen, onClose, onSubmit, profiles, isLoadin
     setStep('form');
     setNormalizedData(null);
     setSubmitError(null);
+    setPreferredProfileId('');
+    setShouldAutoSelectNewestProfile(false);
+    setIsQuickImportOpen(false);
     onClose();
   };
 
+  useEffect(() => {
+    if (profiles.length === 0) return;
+
+    if (shouldAutoSelectNewestProfile) {
+      const newest = [...profiles].sort((a, b) => {
+        const aTime = new Date(a.createdAt || 0).getTime();
+        const bTime = new Date(b.createdAt || 0).getTime();
+        return bTime - aTime;
+      })[0];
+      if (newest?.id) {
+        setPreferredProfileId(newest.id);
+      }
+      setShouldAutoSelectNewestProfile(false);
+      return;
+    }
+
+    if (preferredProfileId) return;
+    setPreferredProfileId(profiles[0].id);
+  }, [preferredProfileId, profiles, shouldAutoSelectNewestProfile]);
+
   if (!isOpen) return null;
+
+  const handleQuickImported = async (type: ImportEntityType, result: ImportExecutionSummary) => {
+    if (type === 'profiles') {
+      setShouldAutoSelectNewestProfile(true);
+    }
+    await onImported?.(type, result);
+    setIsQuickImportOpen(false);
+  };
+
+  const openQuickImport = (type: ImportEntityType) => {
+    setQuickImportType(type);
+    setIsQuickImportOpen(true);
+  };
 
   return (
     <>
@@ -92,13 +148,32 @@ export function AddMachineDrawer({ isOpen, onClose, onSubmit, profiles, isLoadin
             </div>
           )}
 
-          {step === 'form' && <MachineForm profiles={profiles} onSubmit={handleFormSubmit} onCancel={handleClose} isLoading={isLoading} />}
+          {step === 'form' && (
+            <MachineForm
+              profiles={profiles}
+              preferredProfileId={preferredProfileId}
+              onOpenImportProfile={() => openQuickImport('profiles')}
+              onOpenImportMapping={() => openQuickImport('mappings')}
+              onCreateProfile={onCreateProfile}
+              onSubmit={handleFormSubmit}
+              onCancel={handleClose}
+              isLoading={isLoading}
+            />
+          )}
 
           {step === 'confirm' && normalizedData && (
             <MachineConfirmCard data={normalizedData} onConfirm={handleConfirm} onEdit={handleEdit} isLoading={isLoading} />
           )}
         </div>
       </div>
+
+      <ImportMachineDrawer
+        isOpen={isQuickImportOpen}
+        onClose={() => setIsQuickImportOpen(false)}
+        onImported={handleQuickImported}
+        initialImportType={quickImportType}
+        lockImportType
+      />
     </>
   );
 }

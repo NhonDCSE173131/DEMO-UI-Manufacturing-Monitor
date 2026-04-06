@@ -1,6 +1,6 @@
 // Machine Configuration Types for Management
 
-export type MachineProtocol = 'modbus-tcp' | 'opc-ua' | 'simulator';
+export type MachineProtocol = 'modbus-tcp';
 
 export interface MachineConfigForm {
   machineCode: string;
@@ -10,9 +10,9 @@ export interface MachineConfigForm {
   host: string;
   port: number | '';
   unitId?: number | '';
-  profileCode: string;
+  profileId: string;
+  mappingFileId?: string;
   pollIntervalMs: number | '';
-  enabled: boolean;
   autoConnect: boolean;
 }
 
@@ -24,9 +24,10 @@ export interface CreateMachinePayload {
   host: string;
   port: number;
   unitId?: number;
-  profileCode: string;
+  profileId: string;
+  profileCode?: string;
+  mappingFileId?: string;
   pollIntervalMs: number;
-  enabled: boolean;
   autoConnect: boolean;
 }
 
@@ -39,34 +40,53 @@ export interface MachineConfigResponse {
   host: string;
   port: number;
   unitId?: number;
+  profileId?: string;
   profileCode: string;
+  mappingFileId?: string;
   pollIntervalMs: number;
   enabled: boolean;
   autoConnect: boolean;
   createdAt: string;
   updatedAt: string;
-  connectionStatus?: 'ONLINE' | 'OFFLINE' | 'ERROR';
+  connectionStatus?: 'ONLINE' | 'STALE' | 'OFFLINE' | 'UNSTABLE' | 'BAD_CONFIG' | 'ERROR';
   lastConnectionAttempt?: string;
 }
 
 export interface MachineProfileResponse {
   id: string;
-  code: string;
-  name: string;
+  profileCode: string;
+  profileName: string;
+  protocol: string;
+  vendor?: string;
+  model?: string;
   description?: string;
-  enabled: boolean;
-  fields: ProfileFieldMapping[];
-  createdAt: string;
-  updatedAt: string;
+  mappings: ProfileFieldMapping[];
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface CreateMachineProfilePayload {
+  profileCode: string;
+  profileName: string;
+  protocol: MachineProtocol;
+  vendor?: string;
+  model?: string;
+  description?: string;
 }
 
 export interface ProfileFieldMapping {
-  fieldCode: string;
-  fieldName: string;
+  id?: string;
+  logicalKey: string;
+  area: 'COIL' | 'DISCRETE_INPUT' | 'HOLDING' | 'INPUT';
+  addressStart: number;
+  bitIndex?: number;
   dataType: string;
-  register?: number;
+  scaleFactor?: number;
+  unit?: string;
   byteOrder?: string;
-  scaling?: number;
+  wordOrder?: string;
+  isRequired?: boolean;
+  description?: string;
 }
 
 export interface ValidationError {
@@ -114,9 +134,34 @@ export type ImportMode = 'create-only' | 'update-existing' | 'upsert';
 
 export const DEFAULT_PROTOCOL_PORTS: Record<MachineProtocol, number> = {
   'modbus-tcp': 502,
-  'opc-ua': 4840,
-  'simulator': 9999,
 };
 
-export const VALID_PROTOCOLS: MachineProtocol[] = ['modbus-tcp', 'opc-ua', 'simulator'];
+export const VALID_PROTOCOLS: MachineProtocol[] = ['modbus-tcp'];
 
+export interface ImportedMappingFile {
+  fileId: string;
+  fileName: string;
+  importType: 'MAPPING' | 'MAPPINGS' | 'PROFILE';
+  batchId: string;
+  uploadedAt: string;
+  uploadedBy: string;
+  status: 'COMPLETED' | 'COMPLETED_WITH_ERRORS' | 'PENDING' | 'FAILED';
+  profileCode: string;
+  profileId?: string;
+  totalRows: number;
+  successRows: number;
+  failedRows: number;
+}
+
+export interface ValidateProfileMappingPayload {
+  profileId: string;
+  mappingFileId: string;
+}
+
+export interface ValidateProfileMappingResponse {
+  valid: boolean;
+  profileId: string;
+  profileCode: string;
+  mappingFileId: string;
+  mappingProfileCode: string;
+}

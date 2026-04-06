@@ -2,6 +2,7 @@
 
 import { useState, useEffect, Suspense, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import { useMachineStore } from '@/lib/store';
 import { useMachinesData } from '@/hooks/useMachinesData';
 import { useAlarmsData } from '@/hooks/useAlarmsData';
@@ -393,6 +394,15 @@ function MachineDetailContent() {
 
   return (
     <div className="space-y-6 animate-fade-in">
+
+      <div className="flex justify-end">
+        <Link
+          href="/machines/manage"
+          className="inline-flex items-center gap-2 rounded-lg border border-industrial-border/30 bg-industrial-card px-3 py-2 text-sm text-industrial-text hover:border-industrial-border/60"
+        >
+          {selectedLanguage === 'vi' ? 'Quan ly danh sach may' : 'Manage machine list'}
+        </Link>
+      </div>
 
       {/* Machine Selector */}
       <div className="grid grid-cols-1 md:grid-cols-5 gap-3">

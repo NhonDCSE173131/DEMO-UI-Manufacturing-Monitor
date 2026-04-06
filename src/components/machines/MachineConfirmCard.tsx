@@ -32,15 +32,6 @@ export function MachineConfirmCard({ data, onConfirm, onEdit, isLoading = false 
     });
   }
 
-  if (data.autoConnect && !data.enabled) {
-    warnings.push({
-      type: 'auto-connect',
-      message: selectedLanguage === 'en'
-        ? 'Machine is disabled while Auto Connect is enabled'
-        : 'Máy đang tắt nhưng Auto Connect được bật',
-    });
-  }
-
   return (
     <div className="space-y-6">
       {/* Tiêu đề */}
@@ -104,26 +95,18 @@ export function MachineConfirmCard({ data, onConfirm, onEdit, isLoading = false 
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-0">
-            <div className="p-4">
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">{t.table.profile}</p>
-              <p className="text-base font-medium text-gray-900 dark:text-white mt-1">{data.profileCode}</p>
-            </div>
-            <div className="p-4">
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">{t.table.pollInterval}</p>
-              <p className="text-base font-medium text-gray-900 dark:text-white mt-1">{data.pollIntervalMs} ms</p>
-            </div>
-          </div>
+           <div className="grid grid-cols-2 gap-0">
+             <div className="p-4">
+               <p className="text-sm font-medium text-gray-600 dark:text-gray-400">{t.table.profile}</p>
+               <p className="text-base font-medium text-gray-900 dark:text-white mt-1">{data.profileCode || data.profileId}</p>
+             </div>
+             <div className="p-4">
+               <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Mapping File</p>
+               <p className="text-base font-medium text-gray-900 dark:text-white mt-1">{data.mappingFileId ? `✓ Selected` : 'Default'}</p>
+             </div>
+           </div>
 
           <div className="grid grid-cols-2 gap-0">
-            <div className="p-4">
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">{t.confirm.status}</p>
-              <p className="text-base font-medium mt-1">
-                <span className={`inline-flex px-2 py-1 rounded text-sm font-medium ${data.enabled ? 'bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-100' : 'bg-gray-300 dark:bg-gray-600 text-gray-800 dark:text-gray-100'}`}>
-                  {data.enabled ? t.table.enabled : t.table.disabled}
-                </span>
-              </p>
-            </div>
             <div className="p-4">
               <p className="text-sm font-medium text-gray-600 dark:text-gray-400">{t.confirm.autoConnect}</p>
               <p className="text-base font-medium mt-1">
@@ -132,6 +115,7 @@ export function MachineConfirmCard({ data, onConfirm, onEdit, isLoading = false 
                 </span>
               </p>
             </div>
+            <div className="p-4" />
           </div>
 
           {data.description && (

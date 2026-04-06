@@ -12,6 +12,7 @@ interface MachineTableProps {
   isLoading?: boolean;
   onEdit?: (machine: MachineConfigResponse) => void;
   onDelete?: (machineId: string) => void;
+  onToggleEnabled?: (machine: MachineConfigResponse) => void;
   onTestConnection?: (machineId: string) => void;
   onConnect?: (machineId: string) => void;
   onDisconnect?: (machineId: string) => void;
@@ -22,6 +23,7 @@ export function MachineTable({
   isLoading: _isLoading = false,
   onEdit,
   onDelete,
+  onToggleEnabled,
   onTestConnection,
   onConnect,
   onDisconnect,
@@ -32,7 +34,7 @@ export function MachineTable({
   const t = messages.machineManagement;
 
   const getConnectionStatusBadge = (status?: string) => {
-    if (!status) return <span className="text-gray-500">-</span>;
+    if (!status) return <span className="text-gray-500">{selectedLanguage === 'vi' ? 'Chua ket noi' : 'Not connected'}</span>;
 
     const statusLower = status.toLowerCase();
     if (statusLower === 'online') {
@@ -49,6 +51,12 @@ export function MachineTable({
           {t.table.offline}
         </span>
       );
+    } else if (statusLower === 'stale') {
+      return <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-100">STALE</span>;
+    } else if (statusLower === 'unstable') {
+      return <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium bg-orange-100 dark:bg-orange-900 text-orange-800 dark:text-orange-100">UNSTABLE</span>;
+    } else if (statusLower === 'bad_config') {
+      return <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium bg-violet-100 dark:bg-violet-900 text-violet-800 dark:text-violet-100">BAD_CONFIG</span>;
     }
 
     return <span className="text-gray-500">{status}</span>;
@@ -133,6 +141,16 @@ export function MachineTable({
                           className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
                         >
                           {t.actions.edit}
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            onToggleEnabled?.(machine);
+                            setOpenMenuId(null);
+                          }}
+                          className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                        >
+                          {machine.enabled ? (selectedLanguage === 'vi' ? 'Tat may' : 'Disable') : (selectedLanguage === 'vi' ? 'Bat may' : 'Enable')}
                         </button>
 
                         <button

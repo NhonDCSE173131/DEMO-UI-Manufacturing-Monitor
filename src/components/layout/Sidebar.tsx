@@ -69,7 +69,7 @@ const Sidebar = () => {
 
   const menuItems = [
     { icon: LayoutDashboard, label: messages.common.dashboard, href: '/' },
-    { icon: Cpu, label: messages.common.machines, href: '/machines/manage' },
+    { icon: Cpu, label: messages.common.machines, href: '/machines' },
     { icon: Zap, label: messages.common.energy, href: '/energy' },
     { icon: BarChart3, label: messages.common.oeeAnalytics, href: '/oee' },
     { icon: Wrench, label: messages.common.toolLife, href: '/tools' },

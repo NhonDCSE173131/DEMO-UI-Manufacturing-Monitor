@@ -57,8 +57,9 @@ export function normalizeMachineConfigInput(input: MachineConfigForm): CreateMac
     }
   }
 
-  // Normalize profileCode: uppercase, trim
-  const profileCode = input.profileCode.trim().toUpperCase();
+  // Profile id is required by backend create API.
+  const profileId = input.profileId.trim();
+  const mappingFileId = input.mappingFileId?.trim() || undefined;
 
   // Poll interval - ép về number
   let pollIntervalMs = typeof input.pollIntervalMs === 'number' ? input.pollIntervalMs : parseInt(String(input.pollIntervalMs), 10);
@@ -74,9 +75,10 @@ export function normalizeMachineConfigInput(input: MachineConfigForm): CreateMac
     host,
     port,
     unitId,
-    profileCode,
+    profileId,
+    profileCode: profileId,
+    mappingFileId,
     pollIntervalMs,
-    enabled: input.enabled,
     autoConnect: input.autoConnect,
   };
 }
@@ -163,13 +165,14 @@ export function validateMachineConfig(input: MachineConfigForm, messages: Valida
     }
   }
 
-  // Validate profileCode
-  if (!input.profileCode || input.profileCode.trim() === '') {
+  // Validate profileId
+  if (!input.profileId || input.profileId.trim() === '') {
     errors.push({
-      field: 'profileCode',
+      field: 'profileId',
       message: messages.profileRequired || 'Profile không được trống',
     });
   }
+
 
   return {
     isValid: errors.length === 0,

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
-import { machineConfigApi } from '@/lib/api/machine-config';
+import { machineConfigsApi } from '@/lib/api/machine-configs';
 import type { MachineConfigResponse, CreateMachinePayload, ConnectionTestResult } from '@/types/machine-config';
 import { useMachineStore } from '@/lib/store';
 import enMessages from '@/locales/en.json';
@@ -35,7 +35,7 @@ export function useMachineManagement() {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await machineConfigApi.getMachineConfigs();
+      const data = await machineConfigsApi.getMachineConfigs();
       setMachines(data);
     } catch (err) {
       const message = getFriendlyErrorMessage(err, t.errors.loadMachinesFailed, selectedLanguage);
@@ -49,7 +49,7 @@ export function useMachineManagement() {
     setIsLoading(true);
     setError(null);
     try {
-      const result = await machineConfigApi.createMachineConfig(payload);
+      const result = await machineConfigsApi.createMachineConfig(payload);
       setMachines((prev) => [...prev, result]);
       return result;
     } catch (err) {
@@ -65,7 +65,7 @@ export function useMachineManagement() {
     setIsLoading(true);
     setError(null);
     try {
-      const result = await machineConfigApi.updateMachineConfig(id, payload);
+      const result = await machineConfigsApi.updateMachineConfig(id, payload);
       setMachines((prev) => prev.map((m) => (m.id === id ? result : m)));
       return result;
     } catch (err) {
@@ -81,7 +81,7 @@ export function useMachineManagement() {
     setIsLoading(true);
     setError(null);
     try {
-      await machineConfigApi.deleteMachineConfig(id);
+      await machineConfigsApi.deleteMachineConfig(id);
       setMachines((prev) => prev.filter((m) => m.id !== id));
     } catch (err) {
       const message = getFriendlyErrorMessage(err, t.errors.deleteMachineFailed, selectedLanguage);
@@ -91,6 +91,36 @@ export function useMachineManagement() {
       setIsLoading(false);
     }
   }, [selectedLanguage, t.errors.deleteMachineFailed]);
+
+  const enableMachine = useCallback(async (id: string): Promise<void> => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      await machineConfigsApi.enableMachine(id);
+      await loadMachines();
+    } catch (err) {
+      const message = getFriendlyErrorMessage(err, t.errors.updateMachineFailed, selectedLanguage);
+      setError(message);
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [loadMachines, selectedLanguage, t.errors.updateMachineFailed]);
+
+  const disableMachine = useCallback(async (id: string): Promise<void> => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      await machineConfigsApi.disableMachine(id);
+      await loadMachines();
+    } catch (err) {
+      const message = getFriendlyErrorMessage(err, t.errors.updateMachineFailed, selectedLanguage);
+      setError(message);
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [loadMachines, selectedLanguage, t.errors.updateMachineFailed]);
 
   useEffect(() => {
     loadMachines();
@@ -104,6 +134,8 @@ export function useMachineManagement() {
     createMachine,
     updateMachine,
     deleteMachine,
+    enableMachine,
+    disableMachine,
   };
 }
 
@@ -114,7 +146,7 @@ export function useMachineConnectionActions() {
   const testConnection = useCallback(async (machineId: string) => {
     setIsLoading(true);
     try {
-      const result = await machineConfigApi.testMachineConnection(machineId);
+      const result = await machineConfigsApi.testMachineConnection(machineId);
       setTestResult(result);
       return result;
     } catch (err) {
@@ -127,7 +159,7 @@ export function useMachineConnectionActions() {
   const connectMachine = useCallback(async (machineId: string) => {
     setIsLoading(true);
     try {
-      return await machineConfigApi.connectMachine(machineId);
+      return await machineConfigsApi.connectMachine(machineId);
     } catch (err) {
       throw err;
     } finally {
@@ -138,7 +170,7 @@ export function useMachineConnectionActions() {
   const disconnectMachine = useCallback(async (machineId: string) => {
     setIsLoading(true);
     try {
-      return await machineConfigApi.disconnectMachine(machineId);
+      return await machineConfigsApi.disconnectMachine(machineId);
     } catch (err) {
       throw err;
     } finally {
@@ -149,7 +181,7 @@ export function useMachineConnectionActions() {
   const reconnectMachine = useCallback(async (machineId: string) => {
     setIsLoading(true);
     try {
-      return await machineConfigApi.reconnectMachine(machineId);
+      return await machineConfigsApi.connectMachine(machineId);
     } catch (err) {
       throw err;
     } finally {

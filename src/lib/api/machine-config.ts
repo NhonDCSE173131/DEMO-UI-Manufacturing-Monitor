@@ -1,4 +1,5 @@
-import { apiClient } from '@/lib/api/client';
+import { machineConfigsApi, machineProfilesApi } from '@/lib/api/machine-configs';
+import { machineImportsApi } from '@/lib/api/machine-imports';
 import type {
   CreateMachinePayload,
   MachineConfigResponse,
@@ -7,6 +8,7 @@ import type {
   ImportResult,
   ImportMode,
 } from '@/types/machine-config';
+import type { ImportEntityType } from '@/types/machine-import';
 
 /**
  * Machine Configuration Management API
@@ -14,83 +16,67 @@ import type {
  */
 
 export const machineConfigApi = {
-  // ========== Machine Config CRUD ==========
-
   async getMachineConfigs(): Promise<MachineConfigResponse[]> {
-    const data = await apiClient.get<MachineConfigResponse[]>('/api/v1/machines/config');
-    return data || [];
+    return machineConfigsApi.getMachineConfigs();
   },
 
   async getMachineConfig(id: string): Promise<MachineConfigResponse> {
-    return apiClient.get<MachineConfigResponse>(`/api/v1/machines/config/${id}`);
+    return machineConfigsApi.getMachineConfig(id);
   },
 
   async createMachineConfig(payload: CreateMachinePayload): Promise<MachineConfigResponse> {
-    return apiClient.post<MachineConfigResponse>('/api/v1/machines/config', payload);
+    return machineConfigsApi.createMachineConfig(payload);
   },
 
   async updateMachineConfig(id: string, payload: Partial<CreateMachinePayload>): Promise<MachineConfigResponse> {
-    return apiClient.put<MachineConfigResponse>(`/api/v1/machines/config/${id}`, payload);
+    return machineConfigsApi.updateMachineConfig(id, payload);
   },
 
   async deleteMachineConfig(id: string): Promise<void> {
-    return apiClient.delete<void>(`/api/v1/machines/config/${id}`);
+    return machineConfigsApi.deleteMachineConfig(id);
   },
 
-  // ========== Machine Profile Management ==========
-
   async getMachineProfiles(): Promise<MachineProfileResponse[]> {
-    try {
-      const data = await apiClient.get<MachineProfileResponse[]>('/api/v1/machine-profiles');
-      return data || [];
-    } catch {
-      return [];
-    }
+    return machineProfilesApi.getProfiles();
   },
 
   async getMachineProfile(id: string): Promise<MachineProfileResponse> {
-    return apiClient.get<MachineProfileResponse>(`/api/v1/machine-profiles/${id}`);
+    const profiles = await machineProfilesApi.getProfiles();
+    const found = profiles.find((profile) => profile.id === id);
+    if (!found) throw new Error('Profile not found');
+    return found;
   },
 
-  // ========== Machine Connection Operations ==========
-
   async testMachineConnection(id: string): Promise<ConnectionTestResult> {
-    return apiClient.post<ConnectionTestResult>(`/api/v1/machines/${id}/test-connection`, {});
+    return machineConfigsApi.testMachineConnection(id);
   },
 
   async connectMachine(id: string): Promise<{ message: string; isConnected: boolean }> {
-    return apiClient.post<{ message: string; isConnected: boolean }>(`/api/v1/machines/${id}/connect`, {});
+    return machineConfigsApi.connectMachine(id);
   },
 
   async disconnectMachine(id: string): Promise<{ message: string }> {
-    return apiClient.post<{ message: string }>(`/api/v1/machines/${id}/disconnect`, {});
+    return machineConfigsApi.disconnectMachine(id);
   },
 
   async reconnectMachine(id: string): Promise<{ message: string; isConnected: boolean }> {
-    return apiClient.post<{ message: string; isConnected: boolean }>(`/api/v1/machines/${id}/reconnect`, {});
+    return machineConfigsApi.connectMachine(id);
   },
 
-  // ========== Bulk Import ==========
-
-  async importMachineConfigs(formData: FormData, mode: ImportMode = 'create-only'): Promise<ImportResult> {
-    // Add mode to formData
-    formData.append('importMode', mode);
-
-    // Use fetch directly for FormData
-    const response = await fetch('/api/v1/machines/import', {
-      method: 'POST',
-      body: formData,
-      headers: {
-        // Don't set Content-Type, browser will set it with boundary for FormData
-      },
-    });
-
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.message || 'Import failed');
-    }
-
-    return response.json() as Promise<ImportResult>;
+  async importMachineConfigs(formData: FormData, _mode: ImportMode = 'create-only'): Promise<ImportResult> {
+    const file = formData.get('file');
+    if (!(file instanceof File)) throw new Error('Missing import file');
+    const type = (formData.get('importType') as ImportEntityType) || 'machines';
+    const result = await machineImportsApi.importCsv(type, file);
+    return {
+      successCount: result.successCount,
+      failureCount: result.failureCount,
+      errors: result.errors.map((error) => ({
+        rowIndex: error.rowIndex,
+        machineCode: '',
+        message: error.message,
+      })),
+    };
   },
 };
 
@@ -101,28 +87,23 @@ export const machineConfigApi = {
 
 export const machineProfileApi = {
   async getProfiles(): Promise<MachineProfileResponse[]> {
-    try {
-      const data = await apiClient.get<MachineProfileResponse[]>('/api/v1/machine-profiles');
-      return data || [];
-    } catch {
-      return [];
-    }
+    return machineProfilesApi.getProfiles();
   },
 
   async getProfile(id: string): Promise<MachineProfileResponse> {
-    return apiClient.get<MachineProfileResponse>(`/api/v1/machine-profiles/${id}`);
+    return machineConfigApi.getMachineProfile(id);
   },
 
   async createProfile(payload: Partial<MachineProfileResponse>): Promise<MachineProfileResponse> {
-    return apiClient.post<MachineProfileResponse>('/api/v1/machine-profiles', payload);
+    throw new Error(`Profile creation is not supported from UI yet: ${payload.profileCode || ''}`.trim());
   },
 
   async updateProfile(id: string, payload: Partial<MachineProfileResponse>): Promise<MachineProfileResponse> {
-    return apiClient.put<MachineProfileResponse>(`/api/v1/machine-profiles/${id}`, payload);
+    throw new Error(`Profile update is not supported from UI yet: ${id}`);
   },
 
   async deleteProfile(id: string): Promise<void> {
-    return apiClient.delete<void>(`/api/v1/machine-profiles/${id}`);
+    throw new Error(`Profile delete is not supported from UI yet: ${id}`);
   },
 };
 
