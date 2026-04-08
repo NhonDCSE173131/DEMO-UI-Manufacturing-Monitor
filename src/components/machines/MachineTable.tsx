@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { Zap, Wifi, WifiOff, MoreVertical, Trash2, Link as LinkIcon } from 'lucide-react';
-import type { MachineConfigResponse } from '@/types/machine-config';
+import type { ConnectionTestResult, MachineConfigResponse } from '@/types/machine-config';
 import { useMachineStore } from '@/lib/store';
 import enMessages from '@/locales/en.json';
 import viMessages from '@/locales/vi.json';
@@ -16,6 +16,7 @@ interface MachineTableProps {
   onTestConnection?: (machineId: string) => void;
   onConnect?: (machineId: string) => void;
   onDisconnect?: (machineId: string) => void;
+  testResults?: Record<string, ConnectionTestResult>;
 }
 
 export function MachineTable({
@@ -27,6 +28,7 @@ export function MachineTable({
   onTestConnection,
   onConnect,
   onDisconnect,
+  testResults = {},
 }: MachineTableProps) {
   const [openMenuId, setOpenMenuId] = React.useState<string | null>(null);
   const { selectedLanguage } = useMachineStore();
@@ -34,7 +36,7 @@ export function MachineTable({
   const t = messages.machineManagement;
 
   const getConnectionStatusBadge = (status?: string) => {
-    if (!status) return <span className="text-gray-500">{selectedLanguage === 'vi' ? 'Chua ket noi' : 'Not connected'}</span>;
+    if (!status) return <span className="text-gray-500">{t.table.notConnected}</span>;
 
     const statusLower = status.toLowerCase();
     if (statusLower === 'online') {
@@ -62,6 +64,22 @@ export function MachineTable({
     return <span className="text-gray-500">{status}</span>;
   };
 
+  const getTestStatusBadge = (result?: ConnectionTestResult) => {
+    if (!result) {
+      return <span className="text-xs text-gray-500">{t.table.notTested}</span>;
+    }
+    if (result.status === 'REACHABLE') {
+      return <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-100">{t.table.reachable}</span>;
+    }
+    if (result.status === 'BAD_CONFIG') {
+      return <span className="inline-flex items-center gap-1 rounded-full bg-violet-100 px-2 py-0.5 text-xs font-medium text-violet-800 dark:bg-violet-900/30 dark:text-violet-100">{t.table.badConfig}</span>;
+    }
+    if (result.status === 'UNREACHABLE') {
+      return <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2 py-0.5 text-xs font-medium text-rose-800 dark:bg-rose-900/30 dark:text-rose-100">{t.table.unreachable}</span>;
+    }
+    return <span className="inline-flex items-center gap-1 rounded-full bg-gray-200 px-2 py-0.5 text-xs font-medium text-gray-700 dark:bg-gray-700 dark:text-gray-200">{t.table.unknown}</span>;
+  };
+
   if (machines.length === 0) {
     return (
       <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-12 text-center">
@@ -86,9 +104,12 @@ export function MachineTable({
               <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">{t.table.host}</th>
               <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">{t.table.port}</th>
               <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">{t.table.profile}</th>
+              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">{t.table.mappingFile}</th>
+              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">{t.table.readiness}</th>
               <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">{t.table.pollInterval}</th>
               <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">{t.table.status}</th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">{t.table.connection}</th>
+              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">{t.table.runtime}</th>
+              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">{t.table.testConnectionStatus}</th>
               <th className="px-6 py-3 text-center text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">{t.table.actions}</th>
             </tr>
           </thead>
@@ -114,6 +135,37 @@ export function MachineTable({
                   <span className="font-mono text-gray-600 dark:text-gray-400">{machine.profileCode}</span>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
+                  <span className="font-mono text-gray-600 dark:text-gray-400">{machine.mappingFileId || '-'}</span>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap">
+                  {machine.readiness?.readyToConnect ? (
+                    <span className="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-100">
+                      {t.table.ready}
+                    </span>
+                  ) : machine.readiness ? (
+                    <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-100">
+                      {t.table.missingConfig}
+                    </span>
+                  ) : (
+                    <span className="inline-flex rounded-full bg-gray-200 px-2 py-0.5 text-xs font-medium text-gray-700 dark:bg-gray-700 dark:text-gray-200">
+                      {t.table.notAvailable}
+                    </span>
+                  )}
+                  {machine.readiness && (
+                    <div className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+                      <span>{t.table.readinessProfile}: {machine.readiness.profileAssigned ? 'Y' : 'N'}</span>
+                      {' | '}
+                      <span>{t.table.readinessMapping}: {machine.readiness.mappingSelected ? 'Y' : 'N'}</span>
+                      {' | '}
+                      <span>{t.table.readinessHost}: {machine.readiness.hostConfigured ? 'Y' : 'N'}</span>
+                      {' | '}
+                      <span>{t.table.readinessPort}: {machine.readiness.portConfigured ? 'Y' : 'N'}</span>
+                      {' | '}
+                      <span>{t.table.readinessUnitId}: {machine.readiness.unitIdConfigured ? 'Y' : 'N'}</span>
+                    </div>
+                  )}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap">
                   <span className="text-gray-600 dark:text-gray-400">{machine.pollIntervalMs}ms</span>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
@@ -121,7 +173,20 @@ export function MachineTable({
                     {machine.enabled ? t.table.enabled : t.table.disabled}
                   </span>
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap">{getConnectionStatusBadge(machine.connectionStatus)}</td>
+                <td className="px-6 py-4 whitespace-nowrap">
+                  {getConnectionStatusBadge(machine.connectionStatus)}
+                  <div className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+                    {machine.lastDataAt
+                      ? `${t.table.lastData}: ${new Date(machine.lastDataAt).toLocaleString()}`
+                      : `${t.table.lastData}: -`}
+                  </div>
+                  {machine.lastError && (
+                    <div className="mt-1 max-w-[280px] truncate text-[11px] text-red-600 dark:text-red-300" title={machine.lastError}>
+                      {machine.lastError}
+                    </div>
+                  )}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap">{getTestStatusBadge(testResults[machine.id])}</td>
                 <td className="px-6 py-4 whitespace-nowrap text-center">
                   <div className="relative inline-block">
                     <button
@@ -150,7 +215,7 @@ export function MachineTable({
                           }}
                           className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
                         >
-                          {machine.enabled ? (selectedLanguage === 'vi' ? 'Tat may' : 'Disable') : (selectedLanguage === 'vi' ? 'Bat may' : 'Enable')}
+                          {machine.enabled ? t.actions.disable : t.actions.enable}
                         </button>
 
                         <button
@@ -170,7 +235,8 @@ export function MachineTable({
                               onConnect?.(machine.id);
                               setOpenMenuId(null);
                             }}
-                            className="w-full px-4 py-2 text-left text-sm text-green-700 dark:text-green-300 hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors flex items-center gap-2"
+                            disabled={machine.readiness ? !machine.readiness.readyToConnect : false}
+                            className="w-full px-4 py-2 text-left text-sm text-green-700 dark:text-green-300 hover:bg-green-50 dark:hover:bg-green-900/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
                           >
                             <Wifi size={14} />
                             {t.actions.connect}

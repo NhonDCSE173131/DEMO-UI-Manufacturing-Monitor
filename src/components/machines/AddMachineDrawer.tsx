@@ -22,6 +22,8 @@ interface AddMachineDrawerProps {
   onImported?: (type: ImportEntityType, result: ImportExecutionSummary) => Promise<void> | void;
   onCreateProfile?: (payload: CreateMachineProfilePayload) => Promise<MachineProfileResponse | void>;
   isLoading?: boolean;
+  profileCount?: number;
+  mappingFileCount?: number;
 }
 
 export function AddMachineDrawer({
@@ -32,6 +34,8 @@ export function AddMachineDrawer({
   onImported,
   onCreateProfile,
   isLoading = false,
+  profileCount = 0,
+  mappingFileCount = 0,
 }: AddMachineDrawerProps) {
   const { selectedLanguage } = useMachineStore();
   const messages = selectedLanguage === 'en' ? enMessages : viMessages;
@@ -151,6 +155,8 @@ export function AddMachineDrawer({
           {step === 'form' && (
             <MachineForm
               profiles={profiles}
+              profileCount={profileCount}
+              mappingFileCount={mappingFileCount}
               preferredProfileId={preferredProfileId}
               onOpenImportProfile={() => openQuickImport('profiles')}
               onOpenImportMapping={() => openQuickImport('mappings')}
@@ -173,6 +179,8 @@ export function AddMachineDrawer({
         onImported={handleQuickImported}
         initialImportType={quickImportType}
         lockImportType
+        profileCount={profileCount}
+        mappingFileCount={mappingFileCount}
       />
     </>
   );

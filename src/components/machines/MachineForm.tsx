@@ -14,6 +14,8 @@ interface MachineFormProps {
   initialData?: Partial<MachineConfigForm>;
   preferredProfileId?: string;
   profiles: MachineProfileResponse[];
+  profileCount?: number;
+  mappingFileCount?: number;
   onOpenImportProfile?: () => void;
   onOpenImportMapping?: () => void;
   onCreateProfile?: (payload: CreateMachineProfilePayload) => Promise<MachineProfileResponse | void>;
@@ -26,6 +28,8 @@ export function MachineForm({
   initialData,
   preferredProfileId,
   profiles,
+  profileCount = 0,
+  mappingFileCount = 0,
   onOpenImportProfile,
   onOpenImportMapping,
   onCreateProfile,
@@ -445,6 +449,12 @@ export function MachineForm({
         <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">{t.form.mappingProfile}</h3>
         <div className="grid grid-cols-1 gap-4">
           <div>
+            <div className="mb-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900 dark:border-blue-900 dark:bg-blue-900/20 dark:text-blue-100">
+              {t.importFlow.bannerShort
+                .replace('{{profiles}}', String(profileCount))
+                .replace('{{mappings}}', String(mappingFileCount))}
+            </div>
+
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               {t.form.profile} <span className="text-red-500">{t.form.requiredMark}</span>
             </label>
@@ -552,10 +562,16 @@ export function MachineForm({
                 <button
                   type="button"
                   onClick={onOpenImportMapping}
-                  className="px-3 py-2 rounded-lg bg-slate-700 text-white text-sm hover:bg-slate-800"
+                  disabled={profileCount <= 0}
+                  className="px-3 py-2 rounded-lg bg-slate-700 text-white text-sm hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {selectedLanguage === 'vi' ? 'Import mapping (xem truoc)' : 'Import mapping (preview)'}
                 </button>
+                {profileCount <= 0 && (
+                  <p className="mt-1 text-xs text-amber-600 dark:text-amber-300">
+                    {t.importFlow.needProfileBeforeMapping}
+                  </p>
+                )}
               </div>
             )}
 

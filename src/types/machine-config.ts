@@ -2,6 +2,19 @@
 
 export type MachineProtocol = 'modbus-tcp';
 
+export type MachineRuntimeStatus = 'ONLINE' | 'STALE' | 'OFFLINE' | 'UNSTABLE' | 'BAD_CONFIG' | 'ERROR';
+export type MachineTestStatus = 'REACHABLE' | 'UNREACHABLE' | 'BAD_CONFIG' | 'UNKNOWN';
+
+export interface MachineReadiness {
+  profileAssigned: boolean;
+  mappingSelected: boolean;
+  hostConfigured: boolean;
+  portConfigured: boolean;
+  unitIdConfigured: boolean;
+  readyToTest: boolean;
+  readyToConnect: boolean;
+}
+
 export interface MachineConfigForm {
   machineCode: string;
   machineName: string;
@@ -48,8 +61,11 @@ export interface MachineConfigResponse {
   autoConnect: boolean;
   createdAt: string;
   updatedAt: string;
-  connectionStatus?: 'ONLINE' | 'STALE' | 'OFFLINE' | 'UNSTABLE' | 'BAD_CONFIG' | 'ERROR';
+  connectionStatus?: MachineRuntimeStatus;
   lastConnectionAttempt?: string;
+  lastDataAt?: string;
+  lastError?: string;
+  readiness?: MachineReadiness;
 }
 
 export interface MachineProfileResponse {
@@ -124,6 +140,7 @@ export interface ImportResult {
 
 export interface ConnectionTestResult {
   machineId: string;
+  status: MachineTestStatus;
   isConnected: boolean;
   message: string;
   latencyMs?: number;

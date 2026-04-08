@@ -91,12 +91,19 @@ const Dashboard = () => {
   const energyXAxisName = useMemo(() => getTimeAxisLabel(energyRange, localeKey), [energyRange, localeKey]);
   const { isMachineLive, telemetrySeriesByMachineId } = useRealtimeStore();
 
-  /** Dashboard-level helper: is a machine live? */
-  const machineIsLive = (machineId: string) => isMachineLive(machineId);
-  /** §5.2: fmtDash uses actual connectionState for UNSTABLE etc. */
-  const fmtDash = (machineId: string, val: number | undefined | null, decimals = 1) => {
-    const live = machineIsLive(machineId);
-    const conn = machines.find(m => m.id === machineId)?.connectionState;
+  /** Backend status is the source of truth for live/degraded/offline rendering. */
+  const machineIsLive = (machine: (typeof machines)[number]) => {
+    if (machine.connectionState && machine.connectionState !== 'ONLINE' && machine.connectionState !== 'UNSTABLE') {
+      return false;
+    }
+    if (typeof machine.liveDataAvailable === 'boolean') {
+      return machine.liveDataAvailable;
+    }
+    return isMachineLive(machine.id);
+  };
+  const fmtDash = (machine: (typeof machines)[number], val: number | undefined | null, decimals = 1) => {
+    const live = machineIsLive(machine);
+    const conn = machine.connectionState;
     return liveMetricValue(val, live ? (conn || 'ONLINE') : 'OFFLINE', (v) => formatNumber(v, decimals));
   };
 
@@ -789,7 +796,7 @@ const Dashboard = () => {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{
-                        backgroundColor: !machineIsLive(machine.id) ? '#ef4444' : statusFromDisplayState(resolveDisplayState(machine)) === 'RUN' ? '#22c55e' : statusFromDisplayState(resolveDisplayState(machine)) === 'FAULT' ? '#ef4444' : '#60a5fa'
+                        backgroundColor: !machineIsLive(machine) ? '#ef4444' : statusFromDisplayState(resolveDisplayState(machine)) === 'RUN' ? '#22c55e' : statusFromDisplayState(resolveDisplayState(machine)) === 'FAULT' ? '#ef4444' : '#60a5fa'
                       }}></div>
                       <p className="font-semibold text-industrial-text truncate group-hover:text-industrial-border transition-colors">{machine.name}</p>
                     </div>
@@ -806,22 +813,22 @@ const Dashboard = () => {
                     </div>
                   </div>
                   <div className="text-right shrink-0">
-                    <p className="text-xl font-bold" style={{ color: !machineIsLive(machine.id) || machine.oee == null ? '#6b7280' : machine.oee >= 85 ? '#22c55e' : machine.oee >= 60 ? '#facc15' : '#ef4444' }}>{fmtDash(machine.id, machine.oee, 0)}%</p>
+                    <p className="text-xl font-bold" style={{ color: !machineIsLive(machine) || machine.oee == null ? '#6b7280' : machine.oee >= 85 ? '#22c55e' : machine.oee >= 60 ? '#facc15' : '#ef4444' }}>{fmtDash(machine, machine.oee, 0)}%</p>
                     <p className="text-[10px] text-industrial-text-secondary">OEE</p>
                   </div>
                 </div>
                 <div className="grid grid-cols-4 gap-2 text-xs">
                   <div className="bg-industrial-bg/50 rounded p-2 text-center">
                     <p className="text-industrial-text-secondary">{(messages.dashboard as any).powerShort || (selectedLanguage === 'en' ? 'Power' : 'Điện')}</p>
-                    <p className="font-semibold text-industrial-text">{fmtDash(machine.id, machine.powerKw)}<span className="text-industrial-text-secondary text-[10px]"> kW</span></p>
+                    <p className="font-semibold text-industrial-text">{fmtDash(machine, machine.powerKw)}<span className="text-industrial-text-secondary text-[10px]"> kW</span></p>
                   </div>
                   <div className="bg-industrial-bg/50 rounded p-2 text-center">
                     <p className="text-industrial-text-secondary">{(messages.dashboard as any).partsShort || (selectedLanguage === 'en' ? 'Parts' : 'Sản lượng')}</p>
-                    <p className="font-semibold text-industrial-text">{machineIsLive(machine.id) ? (machine.partCount ?? '--') : '--'}</p>
+                    <p className="font-semibold text-industrial-text">{machineIsLive(machine) ? (machine.partCount ?? '--') : '--'}</p>
                   </div>
                   <div className="bg-industrial-bg/50 rounded p-2 text-center">
                     <p className="text-industrial-text-secondary">{(messages.dashboard as any).healthShort || (selectedLanguage === 'en' ? 'Health' : 'Sức khỏe')}</p>
-                    <p className="font-semibold" style={{ color: !machineIsLive(machine.id) || machine.machineHealth == null ? '#6b7280' : machine.machineHealth >= 80 ? '#22c55e' : machine.machineHealth >= 60 ? '#facc15' : '#ef4444' }}>{fmtDash(machine.id, machine.machineHealth, 0)}%</p>
+                    <p className="font-semibold" style={{ color: !machineIsLive(machine) || machine.machineHealth == null ? '#6b7280' : machine.machineHealth >= 80 ? '#22c55e' : machine.machineHealth >= 60 ? '#facc15' : '#ef4444' }}>{fmtDash(machine, machine.machineHealth, 0)}%</p>
                   </div>
                   <div className="bg-industrial-bg/50 rounded p-2 text-center">
                     <p className="text-industrial-text-secondary">{(messages.dashboard as any).alarmsShort || (selectedLanguage === 'en' ? 'Alarms' : 'Cảnh báo')}</p>

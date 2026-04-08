@@ -8,11 +8,12 @@ import { AddMachineDrawer } from '@/components/machines/AddMachineDrawer';
 import { ImportMachineDrawer } from '@/components/machines/ImportMachineDrawer';
 import { useMachineManagement, useMachineConnectionActions } from '@/hooks/useMachineManagement';
 import { useMachineProfiles } from '@/hooks/useMachineProfiles';
+import { useMappingFiles } from '@/hooks/useMappingFiles';
 import { useMachineStore } from '@/lib/store';
 import enMessages from '@/locales/en.json';
 import viMessages from '@/locales/vi.json';
 import Link from 'next/link';
-import type { CreateMachinePayload, CreateMachineProfilePayload, MachineConfigResponse } from '@/types/machine-config';
+import type { ConnectionTestResult, CreateMachinePayload, CreateMachineProfilePayload, MachineConfigResponse } from '@/types/machine-config';
 import type { ImportEntityType, ImportExecutionSummary } from '@/types/machine-import';
 
 export default function MachineManagementPage() {
@@ -22,6 +23,7 @@ export default function MachineManagementPage() {
 
   const { machines, isLoading, error, createMachine, deleteMachine, loadMachines, enableMachine, disableMachine } = useMachineManagement();
   const { profiles, error: profileError, loadProfiles, createProfile } = useMachineProfiles();
+  const { files: mappingFiles } = useMappingFiles();
   const { testConnection, connectMachine, disconnectMachine } = useMachineConnectionActions();
 
   const [showAddDrawer, setShowAddDrawer] = useState(false);
@@ -31,6 +33,7 @@ export default function MachineManagementPage() {
   const [search, setSearch] = useState('');
   const [protocolFilter, setProtocolFilter] = useState<'all' | 'modbus-tcp'>('all');
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [testResults, setTestResults] = useState<Record<string, ConnectionTestResult>>({});
 
   const showToast = (type: 'success' | 'error', message: string) => {
     setToast({ type, message });
@@ -80,10 +83,10 @@ export default function MachineManagementPage() {
 
   const handleCreateProfile = useCallback(async (payload: CreateMachineProfilePayload) => {
     const created = await createProfile(payload);
-    showToast('success', `${selectedLanguage === 'vi' ? 'Da tao profile' : 'Profile created'}: ${created.profileCode}`);
+    showToast('success', `${t.toast.profileCreated}: ${created.profileCode}`);
     await loadProfiles();
     return created;
-  }, [createProfile, loadProfiles, selectedLanguage]);
+  }, [createProfile, loadProfiles, t.toast.profileCreated]);
 
   const handleDeleteMachine = useCallback(
     async (machineId: string) => {
@@ -104,8 +107,11 @@ export default function MachineManagementPage() {
     async (machineId: string) => {
       try {
         const result = await testConnection(machineId);
-        if (result.isConnected) {
+        setTestResults((prev) => ({ ...prev, [machineId]: result }));
+        if (result.status === 'REACHABLE') {
           showToast('success', t.toast.testConnectionSuccess);
+        } else if (result.status === 'BAD_CONFIG') {
+          showToast('error', result.message || t.table.badConfig);
         } else {
           showToast('error', result.message || t.errors.network);
         }
@@ -113,7 +119,7 @@ export default function MachineManagementPage() {
         showToast('error', t.errors.network);
       }
     },
-    [testConnection, t.errors.network, t.toast.testConnectionSuccess],
+    [testConnection, t.errors.network, t.table.badConfig, t.toast.testConnectionSuccess],
   );
 
   const handleConnectMachine = useCallback(
@@ -166,6 +172,8 @@ export default function MachineManagementPage() {
     return matchesSearch && matchesProtocol;
   });
 
+  const readyMappingFiles = mappingFiles.filter((file) => file.status === 'COMPLETED' || file.status === 'COMPLETED_WITH_ERRORS');
+
   return (
     <div className="min-h-screen bg-gray-100 dark:bg-gray-900 p-6">
       <div className="max-w-7xl mx-auto">
@@ -186,6 +194,12 @@ export default function MachineManagementPage() {
           <Link href="/machines" className="font-semibold underline underline-offset-2">
             {selectedLanguage === 'vi' ? 'Mo Machine Realtime' : 'Open machine realtime'}
           </Link>
+        </div>
+
+        <div className="mb-4 rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-3 text-xs text-indigo-900 dark:border-indigo-900 dark:bg-indigo-900/20 dark:text-indigo-100">
+          {t.importFlow.banner
+            .replace('{{profiles}}', String(profiles.length))
+            .replace('{{mappings}}', String(readyMappingFiles.length))}
         </div>
 
         {/* Error message */}
@@ -236,6 +250,7 @@ export default function MachineManagementPage() {
         {/* Machine Table */}
         <MachineTable
           machines={filteredMachines}
+          testResults={testResults}
           isLoading={isLoading}
           onDelete={handleDeleteMachine}
           onToggleEnabled={handleToggleEnabled}
@@ -253,6 +268,8 @@ export default function MachineManagementPage() {
           onImported={handleImportFiles}
           onCreateProfile={handleCreateProfile}
           isLoading={isCreating}
+          profileCount={profiles.length}
+          mappingFileCount={readyMappingFiles.length}
         />
 
         <ImportMachineDrawer
@@ -260,6 +277,8 @@ export default function MachineManagementPage() {
           onClose={() => setShowImportDrawer(false)}
           onImported={handleImportFiles}
           isLoading={isImporting}
+          profileCount={profiles.length}
+          mappingFileCount={readyMappingFiles.length}
         />
 
         {/* Toast Notification */}

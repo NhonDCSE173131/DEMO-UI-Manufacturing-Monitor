@@ -149,7 +149,10 @@ function MachineDetailContent() {
   // Helper: hiển thị giá trị live hoặc '--'
   // ONLINE + UNSTABLE đều hiện số live (§5.2)
   const connState = selectedMachine?.connectionState as ConnectionStateType | undefined;
-  const isLive = selectedMachine ? isMachineLive(selectedMachine.id) : false;
+  const isLive = selectedMachine
+    ? (selectedMachine.liveDataAvailable ?? isMachineLive(selectedMachine.id))
+      && (connState === 'ONLINE' || connState === 'UNSTABLE' || connState === undefined)
+    : false;
   const fmtLive = (val: number | undefined | null, decimals = 1) =>
     liveMetricValue(val, isLive ? (connState || 'ONLINE') : 'OFFLINE', (v) => formatNumber(v, decimals));
 

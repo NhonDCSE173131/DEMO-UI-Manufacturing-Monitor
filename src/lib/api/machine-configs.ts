@@ -4,6 +4,8 @@ import type {
   CreateMachineProfilePayload,
   CreateMachinePayload,
   MachineConfigResponse,
+  MachineRuntimeStatus,
+  MachineTestStatus,
   MachineProfileResponse,
   ProfileFieldMapping,
 } from '@/types/machine-config';
@@ -25,6 +27,8 @@ type MachineConfigApiDto = {
   createdAt?: string;
   updatedAt?: string;
   lastConnectionStatus?: string;
+  lastDataAt?: string;
+  lastError?: string;
   description?: string;
 };
 
@@ -61,7 +65,7 @@ type ConnectionStatusDto = {
   lastError?: string | null;
 };
 
-const normalizeConnectionStatus = (status?: string): MachineConfigResponse['connectionStatus'] => {
+const normalizeConnectionStatus = (status?: string): MachineRuntimeStatus => {
   const normalized = (status || '').toUpperCase();
   if (normalized === 'ONLINE') return 'ONLINE';
   if (normalized === 'STALE') return 'STALE';
@@ -72,26 +76,54 @@ const normalizeConnectionStatus = (status?: string): MachineConfigResponse['conn
   return 'OFFLINE';
 };
 
-const mapMachineConfigDto = (dto: MachineConfigApiDto): MachineConfigResponse => ({
-  id: dto.id,
-  machineCode: dto.code,
-  machineName: dto.name,
-  description: dto.description,
-  protocol: 'modbus-tcp',
-  host: dto.host || '',
-  port: dto.port || 502,
-  unitId: dto.unitId,
-  profileId: dto.profileId,
-  profileCode: dto.profileCode || '-',
-  mappingFileId: dto.mappingFileId,
-  pollIntervalMs: dto.pollIntervalMs || 1000,
-  enabled: dto.isEnabled !== false,
-  autoConnect: dto.autoConnect === true,
-  createdAt: dto.createdAt || new Date().toISOString(),
-  updatedAt: dto.updatedAt || new Date().toISOString(),
-  connectionStatus: normalizeConnectionStatus(dto.lastConnectionStatus),
-  lastConnectionAttempt: dto.updatedAt,
-});
+const normalizeTestStatus = (status?: string): MachineTestStatus => {
+  const normalized = (status || '').toUpperCase();
+  if (normalized === 'REACHABLE') return 'REACHABLE';
+  if (normalized === 'UNREACHABLE') return 'UNREACHABLE';
+  if (normalized === 'BAD_CONFIG') return 'BAD_CONFIG';
+  return 'UNKNOWN';
+};
+
+const mapMachineConfigDto = (dto: MachineConfigApiDto): MachineConfigResponse => {
+  const hostConfigured = Boolean(dto.host && dto.host.trim().length > 0);
+  const portConfigured = typeof dto.port === 'number' && dto.port > 0;
+  const unitIdConfigured = typeof dto.unitId === 'number';
+  const profileAssigned = Boolean(dto.profileId);
+  const mappingSelected = Boolean(dto.mappingFileId);
+  const readyToTest = hostConfigured && portConfigured && unitIdConfigured;
+
+  return {
+    id: dto.id,
+    machineCode: dto.code,
+    machineName: dto.name,
+    description: dto.description,
+    protocol: 'modbus-tcp',
+    host: dto.host || '',
+    port: dto.port || 502,
+    unitId: dto.unitId,
+    profileId: dto.profileId,
+    profileCode: dto.profileCode || '-',
+    mappingFileId: dto.mappingFileId,
+    pollIntervalMs: dto.pollIntervalMs || 1000,
+    enabled: dto.isEnabled !== false,
+    autoConnect: dto.autoConnect === true,
+    createdAt: dto.createdAt || new Date().toISOString(),
+    updatedAt: dto.updatedAt || new Date().toISOString(),
+    connectionStatus: normalizeConnectionStatus(dto.lastConnectionStatus),
+    lastConnectionAttempt: dto.updatedAt,
+    lastDataAt: dto.lastDataAt,
+    lastError: dto.lastError,
+    readiness: {
+      profileAssigned,
+      mappingSelected,
+      hostConfigured,
+      portConfigured,
+      unitIdConfigured,
+      readyToTest,
+      readyToConnect: readyToTest && profileAssigned && mappingSelected,
+    },
+  };
+};
 
 const mapCreatePayloadToApi = (payload: CreateMachinePayload) => ({
   code: payload.machineCode,
@@ -134,12 +166,22 @@ const mapProfileDto = (dto: ProfileApiDto): MachineProfileResponse => ({
 });
 
 const mapConnectionResult = (dto: ConnectionStatusDto): ConnectionTestResult => {
-  const status = (dto.status || '').toUpperCase();
-  const isConnected = status === 'ONLINE' || status === 'STALE';
+  const status = normalizeTestStatus(dto.status);
+  const isConnected = status === 'REACHABLE';
   return {
     machineId: dto.machineId || '',
+    status,
     isConnected,
-    message: dto.lastError || status || 'UNKNOWN',
+    message: dto.lastError || status,
+  };
+};
+
+const mapRuntimeActionResult = (dto: ConnectionStatusDto): { message: string; isConnected: boolean } => {
+  const status = normalizeConnectionStatus(dto.status);
+  const isConnected = status === 'ONLINE' || status === 'STALE' || status === 'UNSTABLE';
+  return {
+    message: dto.lastError || status,
+    isConnected,
   };
 };
 
@@ -196,14 +238,12 @@ export const machineConfigsApi = {
 
   async connectMachine(id: string): Promise<{ message: string; isConnected: boolean }> {
     const data = await apiClient.post<ConnectionStatusDto>(`/api/v1/machine-configs/${id}/connect`, {});
-    const mapped = mapConnectionResult(data);
-    return { message: mapped.message, isConnected: mapped.isConnected };
+    return mapRuntimeActionResult(data);
   },
 
   async disconnectMachine(id: string): Promise<{ message: string }> {
     const data = await apiClient.post<ConnectionStatusDto>(`/api/v1/machine-configs/${id}/disconnect`, {});
-    const mapped = mapConnectionResult(data);
-    return { message: mapped.message };
+    return { message: data.lastError || normalizeConnectionStatus(data.status) };
   },
 };
 

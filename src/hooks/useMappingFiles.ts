@@ -58,10 +58,16 @@ export function useMappingFiles(profileCode?: string): UseMappingFilesReturn {
       setIsLoading(true);
       setError(null);
 
-      const params = new URLSearchParams({ type: 'MAPPING' });
-      if (profileCode) params.append('profileCode', profileCode);
+      const fetchByType = async (type: 'MAPPING' | 'MAPPINGS') => {
+        const params = new URLSearchParams({ type });
+        if (profileCode) params.append('profileCode', profileCode);
+        return fetch(buildApiUrl(`/api/v1/machine-imports/files?${params.toString()}`));
+      };
 
-      const response = await fetch(buildApiUrl(`/api/v1/machine-imports/files?${params.toString()}`));
+      let response = await fetchByType('MAPPING');
+      if (!response.ok && (response.status === 404 || response.status === 400)) {
+        response = await fetchByType('MAPPINGS');
+      }
       if (!response.ok) {
         setError(`Failed to fetch mapping files (${response.status})`);
         setFiles([]);
@@ -69,13 +75,14 @@ export function useMappingFiles(profileCode?: string): UseMappingFilesReturn {
       }
 
       const data = await response.json();
-      if (!data.success || !Array.isArray(data.data)) {
-        setFiles([]);
-        return;
-      }
+      const rawItems = Array.isArray(data)
+        ? data
+        : Array.isArray((data as { data?: unknown[] })?.data)
+          ? (data as { data: unknown[] }).data
+          : [];
 
       const mergedById = new Map<string, ImportedMappingFile>();
-      data.data
+      rawItems
         .map(normalizeFile)
         .filter((item: ImportedMappingFile | null): item is ImportedMappingFile => item !== null)
         .forEach((file: ImportedMappingFile) => {

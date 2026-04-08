@@ -15,6 +15,8 @@ interface ImportMachineDrawerProps {
   isLoading?: boolean;
   initialImportType?: ImportEntityType;
   lockImportType?: boolean;
+  profileCount?: number;
+  mappingFileCount?: number;
 }
 
 type Step = 'upload' | 'preview' | 'confirm';
@@ -26,6 +28,8 @@ export function ImportMachineDrawer({
   isLoading = false,
   initialImportType = 'machines',
   lockImportType = false,
+  profileCount = 0,
+  mappingFileCount = 0,
 }: ImportMachineDrawerProps) {
   const { selectedLanguage } = useMachineStore();
   const messages = selectedLanguage === 'en' ? enMessages : viMessages;
@@ -38,6 +42,8 @@ export function ImportMachineDrawer({
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
+  const missingProfiles = profileCount <= 0;
+  const missingMappings = mappingFileCount <= 0;
 
   const {
     preview,
@@ -53,6 +59,17 @@ export function ImportMachineDrawer({
   useEffect(() => {
     setImportType(initialImportType);
   }, [initialImportType, isOpen]);
+
+  useEffect(() => {
+    if (lockImportType) return;
+    if (importType === 'mappings' && missingProfiles) {
+      setImportType('profiles');
+      return;
+    }
+    if (importType === 'machines' && (missingProfiles || missingMappings)) {
+      setImportType(missingProfiles ? 'profiles' : 'mappings');
+    }
+  }, [importType, lockImportType, missingMappings, missingProfiles]);
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
@@ -191,6 +208,12 @@ export function ImportMachineDrawer({
 
           {step === 'upload' && (
             <div className="space-y-5">
+              <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900 dark:border-blue-900 dark:bg-blue-900/20 dark:text-blue-100">
+                {t.importFlow.bannerShort
+                  .replace('{{profiles}}', String(profileCount))
+                  .replace('{{mappings}}', String(mappingFileCount))}
+              </div>
+
               {!lockImportType && (
               <div>
                 <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
@@ -201,10 +224,17 @@ export function ImportMachineDrawer({
                   onChange={(e) => setImportType(e.target.value as ImportEntityType)}
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700"
                 >
-                  <option value="machines">Machines CSV</option>
+                  <option value="machines" disabled={missingProfiles || missingMappings}>Machines CSV</option>
                   <option value="profiles">Profiles CSV</option>
-                  <option value="mappings">Mappings CSV</option>
+                  <option value="mappings" disabled={missingProfiles}>Mappings CSV</option>
                 </select>
+                <p className="mt-2 text-xs text-gray-600 dark:text-gray-400">
+                  {missingProfiles
+                    ? t.importFlow.needProfileBeforeMapping
+                    : (missingMappings
+                      ? t.importFlow.needMappingBeforeMachines
+                      : t.importFlow.ready)}
+                </p>
               </div>
               )}
 
@@ -254,7 +284,7 @@ export function ImportMachineDrawer({
                     <thead>
                       <tr className="bg-gray-100 dark:bg-gray-700">
                         <th className="px-3 py-2 text-left sticky top-0 bg-gray-100 dark:bg-gray-700">#</th>
-                        {preview.headers.slice(0, 6).map((header) => (
+                        {preview.headers.map((header) => (
                           <th key={header} className="px-3 py-2 text-left sticky top-0 bg-gray-100 dark:bg-gray-700">{header}</th>
                         ))}
                       </tr>
@@ -263,7 +293,7 @@ export function ImportMachineDrawer({
                       {preview.rows.map((row, index) => (
                         <tr key={`${index}-${row[0] || ''}`} className="border-t border-gray-200 dark:border-gray-700">
                           <td className="px-3 py-2">{index + 1}</td>
-                          {row.slice(0, 6).map((value, cellIndex) => (
+                          {row.map((value, cellIndex) => (
                             <td key={`${index}-${cellIndex}`} className="px-3 py-2">{value}</td>
                           ))}
                         </tr>
@@ -277,6 +307,11 @@ export function ImportMachineDrawer({
 
           {step === 'confirm' && validationResult && (
             <div className="space-y-4">
+              <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900 dark:border-blue-900 dark:bg-blue-900/20 dark:text-blue-100">
+                {selectedLanguage === 'vi'
+                  ? 'Dry-run = backend kiem tra file truoc khi ghi vao DB (header, du lieu, quy tac). Neu dry-run hop le thi import that se an toan hon.'
+                  : 'Dry-run means backend validates the file before writing to DB (headers, values, rules). If dry-run passes, real import is safer.'}
+              </div>
               <div className="grid grid-cols-3 gap-4">
                 <div className="rounded-lg p-4 bg-gray-50 dark:bg-gray-700/40">
                   <p className="text-xs text-gray-500">{t.import.totalRows}</p>
@@ -293,8 +328,8 @@ export function ImportMachineDrawer({
               </div>
 
               {validationResult.errors.length > 0 && (
-                <div className="rounded-lg border border-red-200 dark:border-red-900 p-3 max-h-48 overflow-auto text-sm">
-                  {validationResult.errors.slice(0, 10).map((error) => (
+                <div className="rounded-lg border border-red-200 dark:border-red-900 p-3 max-h-56 overflow-auto text-sm">
+                  {validationResult.errors.map((error) => (
                     <p key={`${error.rowIndex}-${error.message}`} className="text-red-700 dark:text-red-300">
                       Row {error.rowIndex}: {error.message}
                     </p>
